@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "types": ["node", "react", "react-dom"],
+    "rootDir": ".",
+    "noEmit": true,
+    "composite": false,
+    "incremental": false
+  },
+  "include": ["client", "src"]
+}

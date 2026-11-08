@@ -174,7 +174,7 @@ const textSchema = Schema.object({
         .description("权重（双开来源时用于随机分配）"),
     }),
   )
-    .role("table")
+    .role("meme-generator:weights")
     .default(defaultConfig.emptyTextAutoFillRules)
     .description("未提供文本时的自动补全文案来源"),
   autoUseGroupNicknameWhenNoDefaultText: Schema.boolean()
@@ -227,7 +227,7 @@ const randomSchema = Schema.object({
         .description("权重"),
     }),
   )
-    .role("table")
+    .role("meme-generator:weights")
     .default(defaultConfig.randomMemeBucketWeightRules)
     .description("`meme.random`随机时的权重配置"),
 }).description("随机触发设置");

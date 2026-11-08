@@ -4,6 +4,8 @@ ChatLuna v2 的 meme-generator（Python）插件。由 [koishi-plugin-chatluna-m
 
 配置直接显示在 ChatLuna v2 的插件设置页，使用宿主 **ui-kit / SchemaForm**，保留八组设置；不加载旧 Koishi Console、Vue 浮动导航或另建重复的配置页面。
 
+随机类别权重与文案来源权重使用紧凑表格，每行包含类别／来源、启用、权重及上下移、删除操作。支持新增、空数组与整组恢复默认；配置格式和保存方式不变。表格扩展仅作用于本插件的专属字段角色，无 WebUI 时不影响平台命令。
+
 ## 本地开发安装
 
 `@chatluna/*` 当前通过 v2 workspace 提供。本目录只维护源码，不安装依赖、不生成锁文件。开发副本位于 v2 的 `external/meme-generator`。
@@ -129,7 +131,7 @@ yarn yakumo build meme-generator
 在 `external/meme-generator`：
 
 ```sh
-../../node_modules/.bin/tsc -p tsconfig.json --noEmit
+yarn typecheck # 服务端与客户端
 ../../node_modules/.bin/vitest run
 ```
 

@@ -20,6 +20,13 @@ describe('配置与项目说明', () => {
     expect(defaultConfig.emptyTextAutoFillRules.map((rule) => rule.weight)).toEqual([100, 100])
     expect(defaultConfig.randomMemeBucketWeightRules).toHaveLength(5)
   })
+  it('只有两组权重数组使用插件专属表格角色', () => {
+    const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
+    expect(fields.randomMemeBucketWeightRules.meta.role).toBe('meme-generator:weights')
+    expect(fields.emptyTextAutoFillRules.meta.role).toBe('meme-generator:weights')
+    expect(fields.excludedMemeKeys.meta.role).toBe('table')
+    expect(fields.groupExcludedMemeKeys.meta.role).toBe('table')
+  })
   it('规则数组整体替换，拒绝非法范围', () => {
     expect(Config({ emptyTextAutoFillRules: [] }).emptyTextAutoFillRules).toEqual([])
     expect(Config({ randomMemeBucketWeightRules: [] }).randomMemeBucketWeightRules).toEqual([])

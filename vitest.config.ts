@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  test: { include: ['tests/**/*.test.ts'], testTimeout: 30000, fileParallelism: false }
+  esbuild: { jsx: 'automatic' },
+  test: { include: ['tests/**/*.test.{ts,tsx}'], testTimeout: 30000, fileParallelism: false }
 })

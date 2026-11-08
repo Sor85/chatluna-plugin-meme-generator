@@ -9,16 +9,17 @@
   "types": "lib/index.d.ts",
   "exports": {
     ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": { "types": "./client/index.ts", "default": "./client/index.ts" }
   },
-  "files": ["lib", "README.md", "LICENSE"],
+  "files": ["lib", "dist", "client", "README.md", "LICENSE"],
   "engines": { "node": ">=24.0.0" },
   "scripts": {
     "sync": "node scripts/sync-to-v2.mjs --once",
     "sync:watch": "node scripts/sync-to-v2.mjs",
     "build": "yakumo build",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-kr": "5.2.10",
@@ -41,12 +42,22 @@
     "@chatluna/schema": "workspace:*",
     "@chatluna/storage-files": "workspace:*",
     "@chatluna/tool": "workspace:*",
+    "@chatluna/ui-client": "workspace:*",
+    "@chatluna/ui-kit": "workspace:*",
+    "@chatluna/ui-schema-form": "workspace:*",
+    "@chatluna/ui-server": "workspace:*",
     "@chatluna/utils": "workspace:*",
     "@cordisjs/plugin-database": "4.2.0",
     "@cordisjs/plugin-http": "^1.5.2",
     "@satorijs/core": "~4.6.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "cordis": "4.0.0-rc.12",
+    "jsdom": "^31.0.0",
     "koishi": "npm:@koishijs/core@4.18.11",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "typescript": "7.0.2",
     "vitest": "^3.2.4"
   },
@@ -55,6 +66,6 @@
       "zh": "表情包生成、随机去重、头像与文字补全及原生 meme 动作",
       "en": "Meme generation, random selection, avatar/text completion and native meme actions"
     },
-    "service": { "required": ["koishi", "http"], "optional": ["tools", "chat", "chatluna_storage"] }
+    "service": { "required": ["koishi", "http"], "optional": ["tools", "chat", "chatluna_storage", "chatluna_webui"] }
   }
 }
