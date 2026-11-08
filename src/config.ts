@@ -55,6 +55,7 @@ export interface Config {
   enableDeveloperDebugLog: boolean;
   randomOutputMemeKey: string;
   enableMemeXmlTool: boolean;
+  memeSearchCacheMinutes: number;
   injectMemeXmlToolAsReplyTool: boolean;
   enableRandomDedupeWithinHours: boolean;
   randomDedupeWindowHours: number;
@@ -106,6 +107,7 @@ export const defaultConfig: Config = {
   enableDeveloperDebugLog: false,
   randomOutputMemeKey: "",
   enableMemeXmlTool: false,
+  memeSearchCacheMinutes: 30,
   injectMemeXmlToolAsReplyTool: false,
   enableRandomDedupeWithinHours: true,
   randomDedupeWindowHours: 24,
@@ -240,11 +242,15 @@ const triggerSchema = Schema.object({
     .description("是否在未提供文本参数时使用引用消息文字触发"),
   enableMemeXmlTool: Schema.boolean()
     .default(defaultConfig.enableMemeXmlTool)
-    .description("启用 v2 原生`meme`动作及`meme_generate`工具"),
+    .description("启用只读`meme_search`模板查询工具与生成发送图片的`meme`动作"),
+  memeSearchCacheMinutes: Schema.number()
+    .min(1).max(1440).step(1)
+    .default(defaultConfig.memeSearchCacheMinutes)
+    .description("模板检索元数据的内存缓存时长（分钟），过期或重启后重新读取后端模板资料"),
   injectMemeXmlToolAsReplyTool: Schema.boolean()
     .default(defaultConfig.injectMemeXmlToolAsReplyTool)
     .hidden()
-    .description("旧版工具调用回复兼容项；v2 统一使用原生 meme 动作和 meme_generate 工具，不再注入 character_reply 字段"),
+    .description("旧版工具调用回复兼容项；v2 使用原生 meme 动作发送图片、meme_search 查询模板，不再注入 character_reply 字段"),
 }).description("触发方式设置");
 
 const filterSchema = Schema.object({
@@ -338,6 +344,7 @@ const labels: Record<string, string> = {
   allowKeyWithoutPrefixTrigger: "无前缀模板键", allowMentionPrefixDirectAliasTrigger: "贴合参数", allowLeadingAtBeforeCommand: "前置提及",
   enableDeveloperDebugLog: "调试日志", randomOutputMemeKey: "固定随机模板",
   enableMemeXmlTool: "原生动作与工具", injectMemeXmlToolAsReplyTool: "旧工具回复兼容项",
+  memeSearchCacheMinutes: "模板索引缓存",
   enableRandomDedupeWithinHours: "随机去重", randomDedupeWindowHours: "去重窗口", enableRandomKeywordNotice: "随机模板提示",
   randomMemeBucketWeightRules: "随机类别权重", infoFetchConcurrency: "信息拉取并发", initLoadRetryTimes: "初始化重试",
   disableErrorReplyToPlatform: "静默平台错误", excludeTextOnlyMemes: "排除纯文字模板", excludeSingleImageOnlyMemes: "排除单图模板",

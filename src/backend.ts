@@ -84,8 +84,8 @@ export class MemeBackendClient {
     return response
   }
 
-  async getKeys(): Promise<string[]> {
-    const response = await this.fetch('/memes/keys')
+  async getKeys(signal?: AbortSignal): Promise<string[]> {
+    const response = await this.fetch('/memes/keys', { signal })
     const result = Schema.array(Schema.string()).safeParse(await response.json())
     if (!result.success) throw new Error('后端模板列表格式错误')
     return result.data

@@ -42,6 +42,17 @@ describe('配置与项目说明', () => {
     expect(Config({ memeXmlReferencePrompt: '旧版参考文本', enableMemeXmlTool: true }).enableMemeXmlTool).toBe(true)
     expect(fields.enableMemeXmlTool).toBeDefined()
   })
+  it('仅保留关键词检索缓存配置，不提供嵌入模型或阈值选项', () => {
+    const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
+    for (const name of ['memeSearchEmbeddingModel', 'memeSearchSemanticThreshold']) {
+      expect(fields).not.toHaveProperty(name)
+      expect(defaultConfig).not.toHaveProperty(name)
+      expect(Config({})).not.toHaveProperty(name)
+    }
+    expect(Config({}).memeSearchCacheMinutes).toBe(30)
+    expect(() => Config({ memeSearchCacheMinutes: 0 })).toThrow()
+    expect(() => Config({ memeSearchCacheMinutes: 1441 })).toThrow()
+  })
   it('规则数组整体替换，拒绝非法范围', () => {
     expect(Config({ emptyTextAutoFillRules: [] }).emptyTextAutoFillRules).toEqual([])
     expect(Config({ randomMemeBucketWeightRules: [] }).randomMemeBucketWeightRules).toEqual([])

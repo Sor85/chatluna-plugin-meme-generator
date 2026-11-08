@@ -5,6 +5,7 @@ import { Config, defaultConfig } from './config'
 import { MemeBackendClient } from './backend'
 import { registerCommands } from './command/register'
 import { registerTools } from './tools'
+import { registerMemeAction } from './actions'
 
 export const name = 'chatluna-meme-generator'
 export { Config }
@@ -24,6 +25,7 @@ export function apply(ctx: Context, config: Config) {
     })
   })
   if (resolved.enableMemeXmlTool) {
+    ctx.inject(['chat'], (ctx) => registerMemeAction(ctx, resolved, runtime))
     ctx.inject(['tools', 'chat'], (ctx) => registerTools(ctx, resolved, runtime))
   }
 }

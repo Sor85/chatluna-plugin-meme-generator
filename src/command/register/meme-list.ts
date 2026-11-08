@@ -431,7 +431,7 @@ function shouldExcludeByMemeCategory(
   return config.excludeOtherMemes;
 }
 
-function isParamsTypeExcludedByConfig(
+export function isParamsTypeExcludedByConfig(
   params: MemeInfoResponse["params_type"] | undefined,
   config: Config,
 ): boolean {
