@@ -9,7 +9,8 @@ ChatLuna v2 表情包生成插件，迁移自 `koishi-plugin-chatluna-meme-gener
 - 在宿主根目录执行 `yarn install`（首次同步或依赖变化后）、`yarn yakumo build meme-generator`；流水线同时构建服务端和 `client/index.ts`。
 - 在宿主 `external/meme-generator` 执行 `yarn typecheck`（服务端与客户端）和 `yarn test`。
 - 不直接改宿主副本，不覆盖用户配置、数据、现有工作区变更。测试使用临时目录与本地模拟 HTTP 服务。
-- 不自行提交、建分支或发布。协议 MIT，迁移来源与版权说明保留在 README / LICENSE。
+- 不自行提交、建分支或发布。协议 MIT，版权与许可声明保留在 LICENSE。
+- README 面向插件使用者，介绍使用方式、功能与必要限制，不包含迁移背景、内部 UI 实现或本地开发流程；开发与验证约定维护在本文件及子目录说明中。
 
 ## 通用约定
 
