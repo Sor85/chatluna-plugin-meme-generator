@@ -12,6 +12,7 @@ export async function backendFixture(initial = [meme('hello', {}, ['你好']), m
   const templates = new Map(initial.map((info) => [info.key, info]))
   const generated: { key: string; texts: FormDataEntryValue[]; images: FormDataEntryValue[]; args: FormDataEntryValue | null }[] = []
   const failures = new Map<string, number>()
+  const barriers = new Map<string, { entered(): void; wait: Promise<void>; release(): void }>()
   let delay = 0
   const server = createServer((req, res) => {
     void (async () => {
@@ -43,6 +44,9 @@ export async function backendFixture(initial = [meme('hello', {}, ['你好']), m
         })
         const form = await request.formData()
         generated.push({ key, texts: form.getAll('texts'), images: form.getAll('images'), args: form.get('args') })
+        const barrier = barriers.get(key)
+        if (barrier) { barrier.entered(); await barrier.wait }
+        if (res.destroyed) return
         if (failures.has(key)) {
           res.writeHead(failures.get(key) ?? 500, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ detail: '模板生成失败' }))
@@ -65,7 +69,22 @@ export async function backendFixture(initial = [meme('hello', {}, ['你好']), m
   return {
     url: `http://127.0.0.1:${address.port}`, templates, generated, failures,
     setDelay(ms: number) { delay = ms },
+    blockGeneration(key: string) {
+      const started = Promise.withResolvers<void>()
+      const gate = Promise.withResolvers<void>()
+      const barrier = { entered: started.resolve, wait: gate.promise, release: gate.resolve }
+      barriers.set(key, barrier)
+      return {
+        started: started.promise,
+        release() {
+          if (barriers.get(key) === barrier) barriers.delete(key)
+          gate.resolve()
+        }
+      }
+    },
     async close() {
+      for (const barrier of barriers.values()) barrier.release()
+      barriers.clear()
       server.closeAllConnections()
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
     }

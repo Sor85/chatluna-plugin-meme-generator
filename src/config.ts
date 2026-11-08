@@ -55,6 +55,9 @@ export interface Config {
   enableDeveloperDebugLog: boolean;
   randomOutputMemeKey: string;
   enableMemeXmlTool: boolean;
+  memeActionConcurrency: number;
+  memeActionQueueTimeoutSeconds: number;
+  memeActionQueueLimit: number;
   memeSearchCacheMinutes: number;
   injectMemeXmlToolAsReplyTool: boolean;
   enableRandomDedupeWithinHours: boolean;
@@ -107,6 +110,9 @@ export const defaultConfig: Config = {
   enableDeveloperDebugLog: false,
   randomOutputMemeKey: "",
   enableMemeXmlTool: false,
+  memeActionConcurrency: 4,
+  memeActionQueueTimeoutSeconds: 30,
+  memeActionQueueLimit: 5,
   memeSearchCacheMinutes: 30,
   injectMemeXmlToolAsReplyTool: false,
   enableRandomDedupeWithinHours: true,
@@ -243,6 +249,18 @@ const triggerSchema = Schema.object({
   enableMemeXmlTool: Schema.boolean()
     .default(defaultConfig.enableMemeXmlTool)
     .description("启用只读`meme_search`模板查询工具与生成发送图片的`meme`动作"),
+  memeActionConcurrency: Schema.natural()
+    .min(1).max(16).step(1)
+    .default(defaultConfig.memeActionConcurrency)
+    .description("不同平台会话同时执行表情动作的上限。同一会话内按顺序执行，排队不计入生成超时；不改变普通聊天与人工命令的并发策略"),
+  memeActionQueueTimeoutSeconds: Schema.natural()
+    .min(1).max(300).step(1)
+    .default(defaultConfig.memeActionQueueTimeoutSeconds)
+    .description("表情动作最长排队时间（秒），与生成超时独立计时。排队超时会取消该动作并返回失败，不在之后补发图片"),
+  memeActionQueueLimit: Schema.natural()
+    .min(1).max(20).step(1)
+    .default(defaultConfig.memeActionQueueLimit)
+    .description("每个平台会话最多等待执行的表情动作数，不含正在执行的动作。插件实例的等待总量最多 100 条，超限立即返回失败"),
   memeSearchCacheMinutes: Schema.number()
     .min(1).max(1440).step(1)
     .default(defaultConfig.memeSearchCacheMinutes)
@@ -344,7 +362,7 @@ const labels: Record<string, string> = {
   allowKeyWithoutPrefixTrigger: "无前缀模板键", allowMentionPrefixDirectAliasTrigger: "贴合参数", allowLeadingAtBeforeCommand: "前置提及",
   enableDeveloperDebugLog: "调试日志", randomOutputMemeKey: "固定随机模板",
   enableMemeXmlTool: "原生动作与工具", injectMemeXmlToolAsReplyTool: "旧工具回复兼容项",
-  memeSearchCacheMinutes: "模板索引缓存",
+  memeActionConcurrency: "表情动作并发", memeActionQueueTimeoutSeconds: "动作排队超时", memeActionQueueLimit: "每会话等待上限", memeSearchCacheMinutes: "模板索引缓存",
   enableRandomDedupeWithinHours: "随机去重", randomDedupeWindowHours: "去重窗口", enableRandomKeywordNotice: "随机模板提示",
   randomMemeBucketWeightRules: "随机类别权重", infoFetchConcurrency: "信息拉取并发", initLoadRetryTimes: "初始化重试",
   disableErrorReplyToPlatform: "静默平台错误", excludeTextOnlyMemes: "排除纯文字模板", excludeSingleImageOnlyMemes: "排除单图模板",

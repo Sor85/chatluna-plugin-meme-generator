@@ -13,6 +13,7 @@ import { isParamsTypeExcludedByConfig } from './command/register/meme-list'
 import { downloadImage, MAX_IMAGE_BYTES } from './utils/image'
 import { getBotAvatarImage, getSenderAvatarImage, resolveAvatarImageByUserId, resolveDisplayNameByUserId, resolveSenderDisplayName } from './utils/avatar'
 import { abortable } from './utils/abort'
+import { MemeActionQueue, memeConversationKey } from './action-queue'
 
 function values(description = '') {
   return Schema.union([Schema.string(), Schema.array(Schema.string())]).optional().description(description)
@@ -55,9 +56,12 @@ async function inputImage(ctx: Context, source: string, messages: readonly ChatM
 export function registerMemeAction(ctx: Context, config: Config, runtime: ReturnType<typeof registerCommands>) {
   const lifetime = new AbortController()
   ctx.effect(() => () => lifetime.abort())
-  let queue: Promise<unknown> = Promise.resolve()
+  const queue = new MemeActionQueue(config.memeActionConcurrency, {
+    maxWaitMs: config.memeActionQueueTimeoutSeconds * 1000,
+    maxPendingPerConversation: config.memeActionQueueLimit
+  })
   ctx.chat.action('meme', {
-    description: 'Generate and SEND a meme image. If the template key or requirements are unknown, first call meme_search with a few short keywords; select an available returned key, then use this action. text, image refs/public URLs and avatar user IDs accept | separated values. Missing inputs follow configured completion. Use multiple <meme> actions for multiple images; they execute in order. This action sends the image itself; do not send it again. Never invent template keys.',
+    description: 'Generate and SEND a meme image. If the template key or requirements are unknown, first call meme_search with a few short keywords; select an available returned key, then use this action. text, image refs/public URLs and avatar user IDs accept | separated values. Missing inputs follow configured completion. Use multiple <meme> actions for multiple images; they execute in order within the same conversation. This action sends the image itself; do not send it again. Do not automatically retry expired or over-limit actions. Never invent template keys.',
     locales: { zh: { description: '根据模板生成并发送表情；模板或参数未知时先通过 meme_search 查询，多个参数使用 | 分隔' } },
     attrs: actionSchema,
     example: '<meme key="hug" at="user-id|bot-id"/>',
@@ -69,9 +73,11 @@ export function registerMemeAction(ctx: Context, config: Config, runtime: Return
       const session = action.session
       if (!session) throw new Error('meme 动作需要绑定平台会话')
       const agent = action.sessionId ? ctx.get('agents')?.get(action.sessionId) : undefined
-      const signal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.timeoutMs * 10), ...(agent ? [agent.signal] : [])])
+      const cancellation = AbortSignal.any([lifetime.signal, ...(agent ? [agent.signal] : [])])
       const messages = agent?.session.messages() ?? []
-      const task = queue.then(async () => {
+      const task = queue.run(memeConversationKey(session), cancellation, async () => {
+        // Waiting does not consume the execution deadline; cancellation still applies while queued.
+        const signal = AbortSignal.any([cancellation, AbortSignal.timeout(config.timeoutMs * 10)])
         signal.throwIfAborted()
         const args = parsed.data
         const key = await abortable(runtime.resolveMemeKey(args.key), signal)
@@ -101,8 +107,7 @@ export function registerMemeAction(ctx: Context, config: Config, runtime: Return
         signal.throwIfAborted()
         await session.send(h.image(Buffer.from(result.buffer), result.mimeType))
       })
-      queue = task.catch(() => {})
-      await abortable(task, signal)
+      await abortable(task, cancellation)
     }
   })
   ctx.logger.info('Registered independent meme action')

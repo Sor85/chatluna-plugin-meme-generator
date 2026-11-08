@@ -53,6 +53,18 @@ describe('配置与项目说明', () => {
     expect(() => Config({ memeSearchCacheMinutes: 0 })).toThrow()
     expect(() => Config({ memeSearchCacheMinutes: 1441 })).toThrow()
   })
+  it('动作跨会话并发默认为 4，仅接受 1–16 的整数', () => {
+    expect(Config({}).memeActionConcurrency).toBe(4)
+    expect(Config({ memeActionConcurrency: 1 }).memeActionConcurrency).toBe(1)
+    expect(Config({ memeActionConcurrency: 16 }).memeActionConcurrency).toBe(16)
+    for (const value of [0, 17, 1.5]) expect(() => Config({ memeActionConcurrency: value })).toThrow()
+  })
+  it('动作排队期限和数量具有独立默认值及范围', () => {
+    expect(Config({}).memeActionQueueTimeoutSeconds).toBe(30)
+    expect(Config({}).memeActionQueueLimit).toBe(5)
+    for (const value of [0, 301, 1.5]) expect(() => Config({ memeActionQueueTimeoutSeconds: value })).toThrow()
+    for (const value of [0, 21, 1.5]) expect(() => Config({ memeActionQueueLimit: value })).toThrow()
+  })
   it('规则数组整体替换，拒绝非法范围', () => {
     expect(Config({ emptyTextAutoFillRules: [] }).emptyTextAutoFillRules).toEqual([])
     expect(Config({ randomMemeBucketWeightRules: [] }).randomMemeBucketWeightRules).toEqual([])
