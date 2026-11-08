@@ -34,6 +34,14 @@ describe('配置与项目说明', () => {
     expect(Config({}).allowKeyWithoutPrefixTrigger).toBe(true)
     expect(Config({ allowKeyWithoutPrefixTrigger: false }).allowKeyWithoutPrefixTrigger).toBe(false)
   })
+  it('不再提供动作参考提示词，旧配置仍能加载原生工具', () => {
+    const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
+    expect(fields).not.toHaveProperty('memeXmlReferencePrompt')
+    expect(defaultConfig).not.toHaveProperty('memeXmlReferencePrompt')
+    expect(Config({})).not.toHaveProperty('memeXmlReferencePrompt')
+    expect(Config({ memeXmlReferencePrompt: '旧版参考文本', enableMemeXmlTool: true }).enableMemeXmlTool).toBe(true)
+    expect(fields.enableMemeXmlTool).toBeDefined()
+  })
   it('规则数组整体替换，拒绝非法范围', () => {
     expect(Config({ emptyTextAutoFillRules: [] }).emptyTextAutoFillRules).toEqual([])
     expect(Config({ randomMemeBucketWeightRules: [] }).randomMemeBucketWeightRules).toEqual([])

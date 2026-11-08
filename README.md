@@ -102,7 +102,7 @@ yarn yakumo build meme-generator
 - 成功时图片已经发送到当前平台会话，同时以 v2 结构化图片结果返回模型，不需要重复发送。
 - 必须绑定平台会话；未绑定、模板被排除或后端失败时返回工具错误，不伪造成功。
 - 旧 `injectMemeXmlToolAsReplyTool` 键保留但隐藏，v2 不再注入 `character_reply` 参数；两种旧 AI 接入方式统一到原生工具/动作。不再包装 `getTemp` 或监听 `completionMessages.push`。
-- `memeXmlReferencePrompt` 保留为管理员参考文本，不自动注入，也不自动替换 `{bot_id}`。v2 动作由原生渲染管线识别，不保留旧正则对不规范 XML（例如缺少等号）的容错。
+- v2 动作由原生渲染管线识别，不保留旧正则对不规范 XML（例如缺少等号）的容错。
 
 ## 列表、排除与错误处理
 

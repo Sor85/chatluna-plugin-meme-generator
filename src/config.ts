@@ -56,7 +56,6 @@ export interface Config {
   randomOutputMemeKey: string;
   enableMemeXmlTool: boolean;
   injectMemeXmlToolAsReplyTool: boolean;
-  memeXmlReferencePrompt?: string;
   enableRandomDedupeWithinHours: boolean;
   randomDedupeWindowHours: number;
   enableRandomKeywordNotice: boolean;
@@ -108,21 +107,6 @@ export const defaultConfig: Config = {
   randomOutputMemeKey: "",
   enableMemeXmlTool: false,
   injectMemeXmlToolAsReplyTool: false,
-  memeXmlReferencePrompt: `## 动作指令
-你可以根据需要在模型回复中输出一个独立的 <actions> 元素。它用于执行非语言的系统指令。如果不需要执行任何动作，请省略此元素。
-- meme: \`<meme key="" text="" image="" at=""/>\`
-  - 固定用法
-    - <meme key="can_can_need" at="{bot_id}|目标用户 ID"/> ## 看看你的，调侃用户时使用
-    - <meme key="erciyuan" at="目标用户 ID"/> ## 嘲笑二次元
-    - <meme key="turtle_jue" at="{bot_id}|目标用户 ID"/> ## 撅，当用户惹你生气时使用
-    - <meme key="hug" at="{bot_id}|目标用户 ID"/> ## 抱抱
-    - <meme key="taunt" at="目标用户 ID"/> ## 嘲讽用户
-    - <meme key="crawl" at="目标用户 ID"/> ## 爬，让用户爬
-    - <meme key="kiss" at="{bot_id}|目标用户 ID"/> ## 亲亲
-  - 要求:
-    - 必须按固定用法的 at 顺序使用，不能颠倒
-  - 适用场景:
-    - 作为表情包的补充，使用 meme 时不要额外发送表情包`,
   enableRandomDedupeWithinHours: true,
   randomDedupeWindowHours: 24,
   enableRandomKeywordNotice: true,
@@ -261,10 +245,6 @@ const triggerSchema = Schema.object({
     .default(defaultConfig.injectMemeXmlToolAsReplyTool)
     .hidden()
     .description("旧版工具调用回复兼容项；v2 统一使用原生 meme 动作和 meme_generate 工具，不再注入 character_reply 字段"),
-  memeXmlReferencePrompt: Schema.string()
-    .role("textarea")
-    .default(defaultConfig.memeXmlReferencePrompt || "")
-    .description("模型回复 XML 参考提示词，不会自动注入；使用时将`{bot_id}`替换为机器人的实际 ID。`text`、`image`、`at`支持以`|`分隔多个参数，缺少的参数按补全设置处理。v2 原生工具调用只需提供必要参数，不再使用旧版工具调用回复字段"),
 }).description("触发方式设置");
 
 const filterSchema = Schema.object({
@@ -357,7 +337,7 @@ const labels: Record<string, string> = {
   enableMemeCommandTrigger: "生成命令", enableDirectAliasWithoutPrefix: "无前缀别名",
   allowKeyWithoutPrefixTrigger: "无前缀模板键", allowMentionPrefixDirectAliasTrigger: "贴合参数", allowLeadingAtBeforeCommand: "前置提及",
   enableDeveloperDebugLog: "调试日志", randomOutputMemeKey: "固定随机模板",
-  enableMemeXmlTool: "原生动作与工具", injectMemeXmlToolAsReplyTool: "旧工具回复兼容项", memeXmlReferencePrompt: "动作参考提示词",
+  enableMemeXmlTool: "原生动作与工具", injectMemeXmlToolAsReplyTool: "旧工具回复兼容项",
   enableRandomDedupeWithinHours: "随机去重", randomDedupeWindowHours: "去重窗口", enableRandomKeywordNotice: "随机模板提示",
   randomMemeBucketWeightRules: "随机类别权重", infoFetchConcurrency: "信息拉取并发", initLoadRetryTimes: "初始化重试",
   disableErrorReplyToPlatform: "静默平台错误", excludeTextOnlyMemes: "排除纯文字模板", excludeSingleImageOnlyMemes: "排除单图模板",
