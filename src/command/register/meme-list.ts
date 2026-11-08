@@ -1,0 +1,931 @@
+/**
+ * meme.list 构建与渲染
+ * 负责模板信息拉取、分类分段与文本/图片输出
+ */
+
+import type { Context } from "cordis";
+import { h } from "@satorijs/core";
+import type {} from "koishi";
+import type { Config, MemeListImageMode } from "../../config";
+import { MemeBackendClient } from "../../backend";
+import type { MemeInfoResponse } from "../../types";
+import { measureTakumiLayout, renderTakumiHtml } from "../../render/takumi";
+import { normalizeMemeKey, resolveSessionGroupId } from "./exclusion";
+import {
+  MEME_LIST_CATEGORY_LABEL,
+  MEME_LIST_CATEGORY_ORDER,
+  type MemeListCategory,
+  type MemeListEntry,
+  type MemeListInfoResult,
+  type MemeListSection,
+} from "./types";
+
+export const MEME_LIST_TEXT_CHUNK_BYTE_LIMIT = 3000;
+export const MEME_SEARCH_RESULT_LIMIT = 30;
+
+interface MemeSearchResult {
+  alias: string;
+}
+
+interface OneBotForwardInternal {
+  _request?: (
+    action: string,
+    params: Record<string, unknown>,
+  ) => Promise<unknown>;
+  [key: string]: unknown;
+}
+
+interface OneBotForwardSession {
+  platform?: string;
+  userId?: string;
+  selfId?: string;
+  channelId?: string;
+  guildId?: string;
+  groupId?: string;
+  roomId?: string;
+  event?: {
+    message_type?: string;
+    guild?: { id?: string };
+    group?: { id?: string };
+    channel?: { id?: string };
+    user?: { id?: string };
+  };
+  bot?: {
+    internal?: OneBotForwardInternal;
+    selfId?: string;
+    user?: {
+      id?: unknown;
+      name?: unknown;
+      nick?: unknown;
+      nickname?: unknown;
+      username?: unknown;
+    };
+    name?: string;
+    nick?: string;
+    nickname?: string;
+    username?: string;
+  };
+}
+
+type ForwardTarget =
+  | { type: "group"; id: string | number }
+  | { type: "private"; id: string | number };
+
+function toOneBotId(value: unknown): string | number | undefined {
+  const text = String(value ?? "").trim();
+  if (!text) return undefined;
+
+  const numeric = Number(text);
+  if (/^\d+$/.test(text) && Number.isSafeInteger(numeric)) return numeric;
+  return text;
+}
+
+function resolveOneBotForwardTarget(
+  session: OneBotForwardSession,
+): ForwardTarget | undefined {
+  const normalizedGroupId = toOneBotId(resolveSessionGroupId(session));
+  if (normalizedGroupId) return { type: "group", id: normalizedGroupId };
+
+  const userId =
+    session.userId ||
+    session.event?.user?.id ||
+    (session.event?.message_type === "private" ? session.channelId : "") ||
+    "";
+  const normalizedUserId = toOneBotId(userId);
+  if (normalizedUserId) return { type: "private", id: normalizedUserId };
+
+  return undefined;
+}
+
+function resolveForwardSender(session: OneBotForwardSession): {
+  id: string | number;
+  name: string;
+} {
+  const user = session.bot?.user;
+  const id =
+    toOneBotId(user?.id) ||
+    toOneBotId(session.selfId) ||
+    toOneBotId(session.bot?.selfId) ||
+    0;
+  const name =
+    String(
+      user?.name ||
+        user?.nick ||
+        user?.nickname ||
+        user?.username ||
+        session.bot?.name ||
+        session.bot?.nick ||
+        session.bot?.nickname ||
+        session.bot?.username ||
+        "meme.list",
+    ).trim() || "meme.list";
+
+  return { id, name };
+}
+
+function appendChunk(
+  chunks: string[],
+  current: string,
+  next: string,
+): string {
+  if (!next) return current;
+  if (!current) return next;
+  if (
+    Buffer.byteLength(`${current}\n${next}`, "utf8") <=
+    MEME_LIST_TEXT_CHUNK_BYTE_LIMIT
+  ) {
+    return `${current}\n${next}`;
+  }
+  chunks.push(current);
+  return next;
+}
+
+function splitLongLine(line: string): string[] {
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const word of line.split(/\s+/).filter(Boolean)) {
+    if (Buffer.byteLength(word, "utf8") > MEME_LIST_TEXT_CHUNK_BYTE_LIMIT) {
+      if (current) {
+        chunks.push(current);
+        current = "";
+      }
+      let chunk = "";
+      for (const char of word) {
+        if (
+          chunk &&
+          Buffer.byteLength(`${chunk}${char}`, "utf8") >
+            MEME_LIST_TEXT_CHUNK_BYTE_LIMIT
+        ) {
+          chunks.push(chunk);
+          chunk = "";
+        }
+        chunk += char;
+      }
+      if (chunk) chunks.push(chunk);
+      continue;
+    }
+
+    if (!current) {
+      current = word;
+      continue;
+    }
+    if (
+      Buffer.byteLength(`${current} ${word}`, "utf8") <=
+      MEME_LIST_TEXT_CHUNK_BYTE_LIMIT
+    ) {
+      current = `${current} ${word}`;
+    } else {
+      chunks.push(current);
+      current = word;
+    }
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+export function splitMemeListText(content: string): string[] {
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of content.split("\n")) {
+    if (Buffer.byteLength(line, "utf8") <= MEME_LIST_TEXT_CHUNK_BYTE_LIMIT) {
+      current = appendChunk(chunks, current, line);
+      continue;
+    }
+
+    if (current) {
+      chunks.push(current);
+      current = "";
+    }
+    chunks.push(...splitLongLine(line));
+  }
+
+  if (current) chunks.push(current);
+  return chunks.length > 0 ? chunks : [content];
+}
+
+export function splitMemeListMessages(sections: MemeListSection[]): string[] {
+  const chunks: string[] = [];
+
+  for (const section of sections) {
+    chunks.push(section.title);
+    chunks.push(...splitMemeListText(section.aliases.join(" ")));
+  }
+
+  return chunks;
+}
+
+type OneBotMessageSegment = { type: string; data: Record<string, unknown> };
+type ForwardNodeContent = string | OneBotMessageSegment[];
+
+function createForwardMessages(
+  session: OneBotForwardSession,
+  contents: ForwardNodeContent[],
+) {
+  const sender = resolveForwardSender(session);
+  return contents.map((content) => ({
+    type: "node",
+    data: {
+      name: sender.name,
+      uin: sender.id,
+      content,
+    },
+  }));
+}
+
+function toInternalMethodName(action: string): string {
+  return action.replace(/_([a-z])/g, (_, char: string) => char.toUpperCase());
+}
+
+async function callOneBotAction(
+  internal: OneBotForwardInternal,
+  action: string,
+  params: Record<string, unknown>,
+): Promise<void> {
+  const methodName = toInternalMethodName(action);
+  const method = internal[methodName] || internal[action];
+  const result: unknown = typeof internal._request === "function"
+    ? await internal._request(action, params)
+    : typeof method === "function"
+      ? await Reflect.apply(method, internal, [params])
+      : (() => { throw new Error(`OneBot adapter does not support ${action}`); })();
+  if (result && typeof result === "object") {
+    const status = "status" in result ? result.status : undefined;
+    const code = "retcode" in result ? result.retcode : undefined;
+    if (status === "failed" || (code !== undefined && Number(code) !== 0)) {
+      const message = "wording" in result ? result.wording : "message" in result ? result.message : action;
+      throw new Error(`OneBot forward failed: ${String(message)}`);
+    }
+  }
+}
+
+async function tryOneBotActions(
+  internal: OneBotForwardInternal,
+  attempts: Array<{ action: string; params: Record<string, unknown> }>,
+): Promise<void> {
+  let lastError: unknown;
+  for (const attempt of attempts) {
+    try {
+      await callOneBotAction(internal, attempt.action, attempt.params);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function createOneBotForwardAttempts(
+  target: ForwardTarget,
+  baseParams: Record<string, unknown>,
+): Array<{ action: string; params: Record<string, unknown> }> {
+  return target.type === "group"
+    ? [
+        {
+          action: "send_group_forward_msg",
+          params: { group_id: target.id, ...baseParams },
+        },
+        {
+          action: "send_forward_msg",
+          params: {
+            message_type: "group",
+            group_id: target.id,
+            ...baseParams,
+          },
+        },
+      ]
+    : [
+        {
+          action: "send_private_forward_msg",
+          params: { user_id: target.id, ...baseParams },
+        },
+        {
+          action: "send_forward_msg",
+          params: {
+            message_type: "private",
+            user_id: target.id,
+            ...baseParams,
+          },
+        },
+      ];
+}
+
+async function sendOneBotForwardMessage(
+  session: unknown,
+  contents: ForwardNodeContent[],
+  metadata: Record<string, unknown>,
+  logger: Context["logger"],
+  failureLog: string,
+): Promise<boolean> {
+  const oneBotSession = session as OneBotForwardSession | undefined;
+  if (oneBotSession?.platform !== "onebot") return false;
+
+  const internal = oneBotSession.bot?.internal;
+  if (!internal) return false;
+
+  const target = resolveOneBotForwardTarget(oneBotSession);
+  if (!target) return false;
+
+  const messages = createForwardMessages(oneBotSession, contents);
+  const attempts = createOneBotForwardAttempts(target, {
+    messages,
+    ...metadata,
+  });
+
+  try {
+    // NapCat 与 LLBOT 的转发接口命名不完全一致，这里先试群/私聊专用 action，再回退到通用 forward API。
+    await tryOneBotActions(internal, attempts);
+    return true;
+  } catch (error) {
+    logger.warn(failureLog, String(error));
+    return false;
+  }
+}
+
+export async function sendMemeListForwardMessage(
+  session: unknown,
+  sections: MemeListSection[],
+  logger: Context["logger"],
+): Promise<boolean> {
+  return await sendOneBotForwardMessage(
+    session,
+    splitMemeListMessages(sections),
+    {},
+    logger,
+    "meme.list forward send failed, fallback to text: %s",
+  );
+}
+
+/**
+ * 多张列表图片每张作为一个转发节点；图片用 base64 段直接内联，不依赖适配器解析 data URL。
+ */
+export async function sendMemeListImageForwardMessage(
+  session: unknown,
+  images: Buffer[],
+  logger: Context["logger"],
+): Promise<boolean> {
+  return await sendOneBotForwardMessage(
+    session,
+    images.map((image) => [
+      { type: "image", data: { file: `base64://${image.toString("base64")}` } },
+    ]),
+    {},
+    logger,
+    "meme.list image forward send failed, fallback to direct images: %s",
+  );
+}
+
+export async function sendMemeSearchForwardMessage(
+  session: unknown,
+  content: string,
+  count: number,
+  logger: Context["logger"],
+): Promise<boolean> {
+  if (!content) return false;
+
+  // 搜索结果也沿用 OneBot forward，避免长结果直接撞平台文本长度限制。
+  return await sendOneBotForwardMessage(
+    session,
+    [content],
+    {
+      prompt: "表情搜索结果",
+      summary: `查看 ${count} 条搜索结果`,
+      source: "meme.search",
+    },
+    logger,
+    "meme.search forward send failed, fallback to text: %s",
+  );
+}
+
+function resolveMemeListCategory(
+  params: MemeInfoResponse["params_type"] | undefined,
+): MemeListCategory {
+  if (!params) return "unknown";
+
+  const needImage = params.max_images > 0;
+  const needText = params.max_texts > 0;
+
+  if (!needImage && !needText) return "no-args";
+  if (!needImage && needText) return "text-only";
+  if (needImage && !needText) return "image-only";
+  return "image-and-text";
+}
+
+function shouldExcludeByMemeCategory(
+  category: MemeListCategory,
+  params: MemeInfoResponse["params_type"] | undefined,
+  config: Config,
+): boolean {
+  if (category === "text-only") return config.excludeTextOnlyMemes;
+  if (category === "image-only") {
+    if (!params) return config.excludeOtherMemes;
+    const minImages = params.min_images;
+    const maxImages = params.max_images;
+    if (maxImages <= 1) return config.excludeSingleImageOnlyMemes;
+    if (minImages >= 2) return config.excludeTwoImageOnlyMemes;
+    return config.excludeOtherMemes;
+  }
+  if (category === "image-and-text") return config.excludeImageAndTextMemes;
+  return config.excludeOtherMemes;
+}
+
+function isParamsTypeExcludedByConfig(
+  params: MemeInfoResponse["params_type"] | undefined,
+  config: Config,
+): boolean {
+  return shouldExcludeByMemeCategory(
+    resolveMemeListCategory(params),
+    params,
+    config,
+  );
+}
+
+export async function buildCategoryExcludedMemeKeySet(
+  client: MemeBackendClient,
+  keys: string[],
+  config: Config,
+): Promise<Set<string>> {
+  if (keys.length === 0) return new Set<string>();
+  if (
+    !config.excludeTextOnlyMemes &&
+    !config.excludeSingleImageOnlyMemes &&
+    !config.excludeTwoImageOnlyMemes &&
+    !config.excludeImageAndTextMemes &&
+    !config.excludeOtherMemes
+  ) {
+    return new Set<string>();
+  }
+
+  const infoResults = await fetchMemeListInfos(client, keys, config);
+  return new Set(
+    infoResults
+      .filter(
+        (result) =>
+          result.info &&
+          isParamsTypeExcludedByConfig(result.info.params_type, config),
+      )
+      .map((result) => normalizeMemeKey(result.key)),
+  );
+}
+
+function pickChineseAlias(info: MemeInfoResponse): string {
+  const aliases = [
+    ...info.keywords,
+    ...info.shortcuts.flatMap((shortcut) =>
+      shortcut.humanized ? [shortcut.humanized, shortcut.key] : [shortcut.key],
+    ),
+  ]
+    .map((alias) => alias.trim())
+    .filter(Boolean);
+
+  const chineseAlias = aliases.find((alias) => /[^\x00-\x7F]/.test(alias));
+  if (chineseAlias) return chineseAlias;
+  return info.key;
+}
+
+function buildMemeSearchText(info: MemeInfoResponse): string {
+  const values = [info.key, ...info.keywords, ...info.tags];
+  for (const shortcut of info.shortcuts) {
+    values.push(shortcut.humanized || shortcut.key);
+  }
+  return values.join(" ").toLowerCase();
+}
+
+export function searchMemeInfos(
+  infoResults: MemeListInfoResult[],
+  query: string,
+  limit = MEME_SEARCH_RESULT_LIMIT,
+): MemeSearchResult[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const exactMatches: MemeSearchResult[] = [];
+  const fuzzyMatches: MemeSearchResult[] = [];
+
+  for (const result of infoResults) {
+    if (!result.info) continue;
+
+    const info = result.info;
+    const exactCandidates = [info.key, ...info.keywords].map((value) =>
+      value.trim().toLowerCase(),
+    );
+    const searchResult = { alias: pickChineseAlias(info) };
+
+    if (exactCandidates.includes(normalizedQuery)) {
+      exactMatches.push(searchResult);
+    } else if (buildMemeSearchText(info).includes(normalizedQuery)) {
+      fuzzyMatches.push(searchResult);
+    }
+  }
+
+  return [...exactMatches, ...fuzzyMatches].slice(0, limit);
+}
+
+export function formatMemeSearchResultMessage(
+  results: MemeSearchResult[],
+): string {
+  const title = `搜索结果（查看 ${results.length} 条搜索结果）`;
+  return [
+    title,
+    ...results.map((result, index) => `${index + 1}. ${result.alias}`),
+  ].join("\n");
+}
+
+function resolveMemeListInfoConcurrency(
+  config: Config,
+  keyCount: number,
+): number {
+  if (keyCount <= 0) return 0;
+  const normalized = Number.isFinite(config.infoFetchConcurrency)
+    ? Math.floor(config.infoFetchConcurrency)
+    : 0;
+
+  if (normalized <= 0) return keyCount;
+  return Math.min(keyCount, Math.max(1, normalized));
+}
+
+export async function fetchMemeListInfos(
+  client: MemeBackendClient,
+  keys: string[],
+  config: Config,
+): Promise<MemeListInfoResult[]> {
+  const results: MemeListInfoResult[] = new Array(keys.length);
+  const workerCount = resolveMemeListInfoConcurrency(config, keys.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= keys.length) break;
+
+      const key = keys[index];
+      try {
+        const info = await client.getInfo(key);
+        results[index] = { key, info };
+      } catch {
+        results[index] = { key };
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+export function buildMemeListEntries(
+  infoResults: MemeListInfoResult[],
+  showKey: boolean,
+): MemeListEntry[] {
+  return infoResults.map((result) => {
+    if (!result.info) {
+      return {
+        alias: result.key,
+        category: "unknown",
+      };
+    }
+    const alias = pickChineseAlias(result.info);
+
+    return {
+      alias:
+        showKey && alias !== result.key ? `${alias}（${result.key}）` : alias,
+      category: resolveMemeListCategory(result.info.params_type),
+    };
+  });
+}
+
+export function buildMemeListSections(
+  entries: MemeListEntry[],
+): MemeListSection[] {
+  const sections: MemeListSection[] = [];
+
+  for (const category of MEME_LIST_CATEGORY_ORDER) {
+    const aliases = Array.from(
+      new Set(
+        entries
+          .filter((entry) => entry.category === category)
+          .map((entry) => entry.alias.trim())
+          .filter(Boolean)
+          .sort((left, right) =>
+            left.localeCompare(right, "zh-Hans-CN", {
+              sensitivity: "base",
+            }),
+          ),
+      ),
+    );
+
+    if (aliases.length === 0) continue;
+
+    sections.push({
+      title: MEME_LIST_CATEGORY_LABEL[category],
+      aliases,
+    });
+  }
+
+  return sections;
+}
+
+export function formatMemeListLines(sections: MemeListSection[]): string[] {
+  const lines: string[] = [];
+
+  for (const section of sections) {
+    lines.push(section.title);
+    lines.push(section.aliases.join(" "));
+    lines.push("");
+  }
+
+  if (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  return lines;
+}
+
+function toBase64(data: unknown): string | undefined {
+  if (Buffer.isBuffer(data)) return data.toString("base64");
+  if (data instanceof Uint8Array) return Buffer.from(data).toString("base64");
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("base64");
+  return undefined;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function stringifyImageSegment(
+  image: ReturnType<typeof h.image>,
+): string {
+  const normalize = (h as { normalize?: (value: unknown) => unknown[] })
+    .normalize;
+  if (typeof normalize === "function") {
+    const normalized = normalize(image)
+      .map((value) => String(value))
+      .join("");
+    if (normalized.trim()) return normalized;
+  }
+
+  const text = String(image);
+  if (text && text !== "[object Object]") return text;
+
+  const imageLike = image as unknown as {
+    attrs?: { src?: unknown; url?: unknown };
+    mimeType?: unknown;
+    buffer?: unknown;
+  };
+
+  const source = imageLike.attrs?.src ?? imageLike.attrs?.url;
+  if (typeof source === "string" && source.trim()) {
+    return `<img src="${source.trim()}"/>`;
+  }
+
+  const base64 = toBase64(imageLike.buffer);
+  if (!base64) return "<img/>";
+
+  const mimeType =
+    typeof imageLike.mimeType === "string" && imageLike.mimeType.trim()
+      ? imageLike.mimeType.trim()
+      : "image/png";
+
+  return `<img src="data:${mimeType};base64,${base64}"/>`;
+}
+
+export const MEME_LIST_IMAGE_LAYOUT_WIDTH = 1200;
+export const MEME_LIST_IMAGE_DEVICE_SCALE_FACTOR = 2;
+export const MEME_LIST_IMAGE_PAGE_MAX_HEIGHT = 1600;
+
+const MEME_LIST_IMAGE_TITLE_FONT_SIZE = 22;
+const MEME_LIST_IMAGE_ALIAS_FONT_SIZE = 18;
+const MEME_LIST_IMAGE_PADDING = 36;
+const MEME_LIST_IMAGE_SECTION_GAP = 22;
+const MEME_LIST_IMAGE_COLUMN_MIN_WIDTH = 220;
+
+export interface MemeListImageBlock {
+  title: string;
+  aliases: string[];
+}
+
+export function resolveMemeListImageColumns(): number {
+  const contentWidth =
+    MEME_LIST_IMAGE_LAYOUT_WIDTH - MEME_LIST_IMAGE_PADDING * 2;
+  return Math.max(
+    1,
+    Math.floor(contentWidth / MEME_LIST_IMAGE_COLUMN_MIN_WIDTH),
+  );
+}
+
+function buildMemeListImageDocument(body: string): string {
+  const columns = resolveMemeListImageColumns();
+  return `<!doctype html><html><head><meta charset="utf-8"/><style>body{margin:0;padding:0;background:#f5f7fb;}#list{width:${MEME_LIST_IMAGE_LAYOUT_WIDTH}px;padding:${MEME_LIST_IMAGE_PADDING}px;box-sizing:border-box;color:#0f172a;font-family:"Noto Sans SC",sans-serif;}.section{margin:0 0 ${MEME_LIST_IMAGE_SECTION_GAP}px 0;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#ffffff;}.section-title{padding:12px 16px;background:#e2e8f0;border-bottom:1px solid #cbd5e1;font-size:${MEME_LIST_IMAGE_TITLE_FONT_SIZE}px;line-height:1.4;font-weight:700;}.alias-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));}.alias-cell{padding:10px 12px;font-size:${MEME_LIST_IMAGE_ALIAS_FONT_SIZE}px;line-height:1.5;border-right:1px solid #dbe3ee;border-bottom:1px solid #dbe3ee;word-break:break-word;overflow-wrap:anywhere;background:#ffffff;}.alias-cell:nth-child(2n){background:#f8fafc;}.line{font-size:${MEME_LIST_IMAGE_ALIAS_FONT_SIZE}px;line-height:1.6;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;}</style></head><body><div id="list">${body}</div></body></html>`;
+}
+
+export function buildMemeListImageHtml(blocks: MemeListImageBlock[]): string {
+  const body = blocks
+    .map((block) => {
+      const aliasCells = block.aliases
+        .map((alias) => `<div class="alias-cell">${escapeXml(alias)}</div>`)
+        .join("");
+      return `<section class="section"><div class="section-title">${escapeXml(block.title)}</div><div class="alias-grid">${aliasCells}</div></section>`;
+    })
+    .join("");
+
+  return buildMemeListImageDocument(body);
+}
+
+function buildMemeListImageLinesHtml(lines: string[]): string {
+  const body = lines
+    .map((line) => `<div class="line">${escapeXml(line)}</div>`)
+    .join("");
+
+  return buildMemeListImageDocument(body);
+}
+
+interface MemeListSectionMetrics {
+  /** 页面内边距等与分类无关的固定高度 */
+  pageBaseHeight: number;
+  /** 分类边框与标题栏高度 */
+  chromeHeight: number;
+  /** 别名网格每一行的高度 */
+  rowHeights: number[];
+}
+
+/**
+ * 单独测量一个分类的布局。网格列宽固定，行高只取决于该行别名本身，
+ * 所以测一次就能算出任意行切片放到任意页上的高度。
+ */
+async function measureMemeListSection(
+  section: MemeListSection,
+): Promise<MemeListSectionMetrics> {
+  const root = await measureTakumiLayout(
+    buildMemeListImageHtml([section]),
+    MEME_LIST_IMAGE_LAYOUT_WIDTH,
+  );
+
+  // 外层容器都只有一个子节点，向下找到由标题和网格组成的分类节点
+  let sectionNode = root;
+  while (sectionNode.children.length === 1) {
+    sectionNode = sectionNode.children[0];
+  }
+  const grid = sectionNode.children[1];
+  if (!grid) throw new Error("unexpected meme list layout");
+
+  const columns = resolveMemeListImageColumns();
+  const rowHeights: number[] = [];
+  grid.children.forEach((cell, index) => {
+    const row = Math.floor(index / columns);
+    rowHeights[row] = Math.max(rowHeights[row] ?? 0, cell.height);
+  });
+
+  return {
+    pageBaseHeight:
+      root.height - sectionNode.height - MEME_LIST_IMAGE_SECTION_GAP,
+    chromeHeight: sectionNode.height - grid.height,
+    rowHeights,
+  };
+}
+
+/**
+ * 把模板列表按网格整行切成若干页，保证每页渲染高度不超过 maxHeight（CSS 像素）。
+ * 分类跨页时标题追加「（续）」。
+ */
+export async function paginateMemeListImageSections(
+  sections: MemeListSection[],
+  maxHeight = MEME_LIST_IMAGE_PAGE_MAX_HEIGHT,
+): Promise<MemeListImageBlock[][]> {
+  const columns = resolveMemeListImageColumns();
+  const pages: MemeListImageBlock[][] = [];
+  let currentPage: MemeListImageBlock[] = [];
+  let currentHeight = 0;
+
+  const flush = () => {
+    if (currentPage.length > 0) {
+      pages.push(currentPage);
+      currentPage = [];
+    }
+  };
+
+  for (const section of sections) {
+    const { pageBaseHeight, chromeHeight, rowHeights } =
+      await measureMemeListSection(section);
+    let row = 0;
+
+    while (row < rowHeights.length) {
+      const title = row === 0 ? section.title : `${section.title}（续）`;
+      const usedHeight =
+        currentPage.length > 0 ? currentHeight : pageBaseHeight;
+      let blockHeight = chromeHeight + MEME_LIST_IMAGE_SECTION_GAP;
+      let count = 0;
+
+      while (
+        row + count < rowHeights.length &&
+        Math.ceil(usedHeight + blockHeight + rowHeights[row + count]) <=
+          maxHeight
+      ) {
+        blockHeight += rowHeights[row + count];
+        count += 1;
+      }
+
+      if (count === 0) {
+        if (currentPage.length > 0) {
+          flush();
+          continue;
+        }
+
+        // 单行也超出页高（页高配置过小），强制放一行避免死循环
+        blockHeight += rowHeights[row];
+        count = 1;
+      }
+
+      currentPage.push({
+        title,
+        aliases: section.aliases.slice(row * columns, (row + count) * columns),
+      });
+      currentHeight = usedHeight + blockHeight;
+      row += count;
+      // 本条分类还没放完，说明本页已满
+      if (row < rowHeights.length) flush();
+    }
+  }
+
+  flush();
+  return pages;
+}
+
+async function buildMemeListImageDocuments(
+  sections: MemeListSection[],
+  lines: string[],
+  mode: MemeListImageMode,
+): Promise<string[]> {
+  if (sections.length === 0) return [buildMemeListImageLinesHtml(lines)];
+  if (mode !== "multiple") return [buildMemeListImageHtml(sections)];
+
+  const pages = await paginateMemeListImageSections(sections);
+  return pages.map((blocks) => buildMemeListImageHtml(blocks));
+}
+
+interface MemeListImageCacheEntry {
+  key: string;
+  images: Buffer[];
+}
+
+// 模板列表基本不变，缓存上一次的渲染结果，避免重复执行分页测量与出图
+let memeListImageCache: MemeListImageCacheEntry | undefined;
+
+function createMemeListImageCacheKey(
+  sections: MemeListSection[],
+  lines: string[],
+  mode: MemeListImageMode,
+): string {
+  return JSON.stringify([mode, sections.length > 0 ? sections : lines]);
+}
+
+/**
+ * 把模板列表渲染成 PNG：single 合成一张长图，multiple 按页高拆成多张。
+ * 渲染失败时返回 undefined，由调用方退回文本。
+ */
+export async function buildListImages(
+  sections: MemeListSection[],
+  lines: string[],
+  mode: MemeListImageMode,
+  logger: Context["logger"],
+): Promise<Buffer[] | undefined> {
+  try {
+    const cacheKey = createMemeListImageCacheKey(sections, lines, mode);
+    if (memeListImageCache?.key === cacheKey) {
+      return memeListImageCache.images;
+    }
+
+    // 高密度出图：布局宽度按 CSS 像素算，再按 deviceScaleFactor 放大出图，
+    // 否则 2400px 宽的图里字号只占 0.67%，QQ 等客户端按屏幕宽度缩放后就会糊成一团。
+    const documents = await buildMemeListImageDocuments(sections, lines, mode);
+    const images: Buffer[] = [];
+    for (const html of documents) {
+      images.push(
+        await renderTakumiHtml(html, MEME_LIST_IMAGE_LAYOUT_WIDTH, {
+          deviceScaleFactor: MEME_LIST_IMAGE_DEVICE_SCALE_FACTOR,
+        }),
+      );
+    }
+    memeListImageCache = { key: cacheKey, images };
+    return images;
+  } catch (error) {
+    logger.warn(
+      "meme.list image render failed, fallback to text: %s",
+      String(error),
+    );
+    return undefined;
+  }
+}
+
+/** 把列表图片拼成同一条消息里的图片段。 */
+export function formatMemeListImageMessage(images: Buffer[]): string {
+  return images
+    .map((image) => stringifyImageSegment(h.image(image, "image/png")))
+    .join("");
+}

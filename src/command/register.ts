@@ -1,0 +1,765 @@
+/**
+ * 命令注册与执行链路
+ * 注册 meme 相关命令并完成生成请求调用
+ */
+
+import type { Context } from "cordis";
+import { h } from "@satorijs/core";
+import type {} from "koishi";
+import type { Config } from "../config";
+import { MemeBackendClient } from "../backend";
+import {
+  createMemeKeyResolver,
+  createMemeTriggerPrefixResolver,
+  shouldRegisterDirectAlias,
+} from "./key-resolver";
+import {
+  buildCategoryExcludedMemeKeySet,
+  buildMemeListEntries,
+  buildMemeListSections,
+  buildListImages,
+  formatMemeListImageMessage,
+  fetchMemeListInfos,
+  formatMemeSearchResultMessage,
+  formatMemeListLines,
+  searchMemeInfos,
+  sendMemeListForwardMessage,
+  sendMemeListImageForwardMessage,
+  sendMemeSearchForwardMessage,
+  splitMemeListMessages,
+} from "./register/meme-list";
+import {
+  buildExcludedMemeKeySet,
+  buildGroupExcludedMemeKeySets,
+  filterExcludedMemeKeys,
+  isExcludedMemeKey,
+  resolveSessionGroupId,
+} from "./register/exclusion";
+import { mapRuntimeErrorMessage, replyOrSilent } from "./register/errors";
+import {
+  buildRandomConfig,
+  handleGenerate,
+  handleGenerateWithPreparedInput,
+  type PreparedAvatarImage,
+  type PreparedImages,
+} from "./register/generate";
+import {
+  installDirectAliasRuntime,
+  normalizeMergedTriggerRestText,
+} from "./register/direct-alias-runtime";
+import { installRandomRuntime } from "./register/random-runtime";
+import type { MemeInfoResponse } from "../types";
+
+interface LeadingAtCommandParts {
+  leadingAtSegments: string[];
+  commandText: string;
+  suffix: string;
+}
+
+interface ElementLike {
+  type?: string;
+  attrs?: {
+    id?: string;
+    content?: unknown;
+  };
+}
+
+function resolveSessionTextContent(session: {
+  content?: unknown;
+  stripped?: { content?: unknown };
+}): string {
+  const rawContent =
+    typeof session.content === "string" ? session.content.trim() : "";
+  if (rawContent) return rawContent;
+
+  const strippedContent =
+    typeof session.stripped?.content === "string"
+      ? session.stripped.content.trim()
+      : "";
+  return strippedContent;
+}
+
+function extractAtIdSegments(rawAts: string): string[] {
+  const segments: string[] = [];
+  const idPattern = /\bid\s*=\s*"([^"]+)"/gi;
+  let match: RegExpExecArray | null = idPattern.exec(rawAts);
+  while (match) {
+    const id = (match[1] || "").trim();
+    if (id) segments.push(`<at id="${id}"/>`);
+    match = idPattern.exec(rawAts);
+  }
+  return segments;
+}
+
+function parseLeadingAtBeforeMemeCommand(
+  content: string,
+): LeadingAtCommandParts | undefined {
+  const normalized = content.trim();
+  if (!normalized) return undefined;
+
+  const segmentMatch = normalized.match(
+    /^((?:<at\b[^>]*>(?:<\/at>)?\s*)+)(\S+)([\s\S]*)$/i,
+  );
+  if (segmentMatch) {
+    const leadingAtSegments = extractAtIdSegments(segmentMatch[1] || "");
+    const commandText = (segmentMatch[2] || "").trim();
+    if (leadingAtSegments.length === 0 || !commandText) return undefined;
+    return {
+      leadingAtSegments,
+      commandText,
+      suffix: (segmentMatch[3] || "").trim(),
+    };
+  }
+
+  const plainMatch = normalized.match(/^((?:@\S+\s+)+)(\S+)([\s\S]*)$/i);
+  if (!plainMatch) return undefined;
+
+  const leadingAtSegments = (plainMatch[1] || "")
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.startsWith("@") && token.length > 1)
+    .map((token) => {
+      const mentionBody = token.slice(1).trim();
+      return /^\d+$/.test(mentionBody)
+        ? `<at id="${mentionBody}"/>`
+        : `@${mentionBody}`;
+    });
+
+  const commandText = (plainMatch[2] || "").trim();
+  if (leadingAtSegments.length === 0 || !commandText) return undefined;
+
+  return {
+    leadingAtSegments,
+    commandText,
+    suffix: (plainMatch[3] || "").trim(),
+  };
+}
+
+function parseLeadingAtBeforeMemeByElements(
+  elements: readonly ElementLike[] = [],
+): LeadingAtCommandParts | undefined {
+  if (elements.length < 2) return undefined;
+
+  const atElements: ElementLike[] = [];
+  let index = 0;
+  for (; index < elements.length; index += 1) {
+    const element = elements[index];
+    if (element?.type !== "at") break;
+    atElements.push(element);
+  }
+
+  if (atElements.length === 0) return undefined;
+
+  let commandText = "";
+  let suffix = "";
+  let foundCommandText = false;
+  for (; index < elements.length; index += 1) {
+    const element = elements[index];
+    if (element?.type !== "text") return undefined;
+
+    const rawContent = element.attrs?.content;
+    const textContent =
+      typeof rawContent === "string" ? rawContent.trimStart() : "";
+    if (!textContent) continue;
+
+    const match = textContent.match(/^(\S+)([\s\S]*)$/i);
+    if (!match) return undefined;
+
+    commandText = (match[1] || "").trim();
+    suffix = (match[2] || "").trim();
+    foundCommandText = true;
+    break;
+  }
+
+  if (!foundCommandText || !commandText) return undefined;
+
+  const leadingAtSegments = atElements
+    .map((element) => {
+      const id = element.attrs?.id;
+      return id ? `<at id="${id}"/>` : "";
+    })
+    .filter(Boolean);
+  if (leadingAtSegments.length === 0) return undefined;
+
+  return {
+    leadingAtSegments,
+    commandText,
+    suffix,
+  };
+}
+
+function collectChineseAliases(info: MemeInfoResponse): string[] {
+  const aliases = [
+    ...info.keywords,
+    ...info.shortcuts.flatMap((shortcut) =>
+      shortcut.humanized ? [shortcut.humanized, shortcut.key] : [shortcut.key],
+    ),
+  ]
+    .map((alias) => alias.trim())
+    .filter((alias) => alias && /[^\x00-\x7F]/.test(alias));
+
+  return Array.from(new Set(aliases));
+}
+
+export function registerCommands(ctx: Context, config: Config, client: MemeBackendClient) {
+  const excludedMemeKeySet = buildExcludedMemeKeySet(config);
+  const groupExcludedMemeKeySets = buildGroupExcludedMemeKeySets(config);
+  let categoryExcludedMemeKeySet = new Set<string>();
+  let categoryExcludedMemeKeySetLoaded = false;
+  const ensureCategoryExcludedMemeKeySet = async (
+    rawKeys?: string[],
+    forceRefresh = false,
+  ): Promise<void> => {
+    if (categoryExcludedMemeKeySetLoaded && !forceRefresh) return;
+    const keys = rawKeys ?? (await client.getKeys());
+    categoryExcludedMemeKeySet = await buildCategoryExcludedMemeKeySet(
+      client,
+      keys,
+      config,
+    );
+    categoryExcludedMemeKeySetLoaded = true;
+  };
+  const mergedGlobalExcludedMemeKeySet = (): Set<string> => {
+    if (categoryExcludedMemeKeySet.size === 0) return excludedMemeKeySet;
+    return new Set([...excludedMemeKeySet, ...categoryExcludedMemeKeySet]);
+  };
+  const mergedExcludedMemeKeySet = (session?: unknown): Set<string> => {
+    const globalExcludedSet = mergedGlobalExcludedMemeKeySet();
+    const groupId = resolveSessionGroupId(session);
+    const groupExcludedSet = groupId
+      ? groupExcludedMemeKeySets.get(groupId)
+      : undefined;
+    if (!groupExcludedSet || groupExcludedSet.size === 0)
+      return globalExcludedSet;
+    return new Set([...globalExcludedSet, ...groupExcludedSet]);
+  };
+
+  const resolveMemeKey = createMemeKeyResolver(client, {
+    infoFetchConcurrency: config.infoFetchConcurrency,
+  });
+  const resolveMemeTriggerPrefix = createMemeTriggerPrefixResolver(client, {
+    infoFetchConcurrency: config.infoFetchConcurrency,
+  });
+  const logger = ctx.logger;
+
+  const handleErrorReply = (scope: string, message: string): string => {
+    if (!config.disableErrorReplyToPlatform) return message;
+    logger.warn("%s failed: %s", scope, message);
+    return "";
+  };
+
+  const handleRuntimeError = (scope: string, error: unknown): string => {
+    return handleErrorReply(scope, mapRuntimeErrorMessage(error));
+  };
+
+  ctx.middleware(async (session, next) => {
+    const sessionTextContent = resolveSessionTextContent(session);
+    if (/^<img\b/i.test(sessionTextContent)) {
+      const commandText = sessionTextContent.replace(/<img\b[^>]*>(?:<\/img>)?/gi, " ").trim();
+      if (/^meme(?:\.(?:list|info|preview|search|random))?(?:\s|$)/i.test(commandText)) {
+        const result = await session.execute(commandText, true);
+        if (result.length) await session.send(result);
+        return;
+      }
+    }
+    const strippedContent =
+      typeof session.stripped?.content === "string"
+        ? session.stripped.content.trim()
+        : "";
+    const sessionElements = Array.isArray(session.elements)
+      ? (session.elements as ElementLike[])
+      : [];
+    const contentMatched = parseLeadingAtBeforeMemeCommand(sessionTextContent);
+    const elementsMatched = parseLeadingAtBeforeMemeByElements(sessionElements);
+    const leadingAtParts = contentMatched || elementsMatched;
+
+    if (config.enableDeveloperDebugLog) {
+      logger.info(
+        "leading-at debug: content=%s stripped=%s contentMatched=%s elementsMatched=%s matched=%s allow=%s",
+        JSON.stringify(sessionTextContent),
+        JSON.stringify(strippedContent),
+        String(Boolean(contentMatched)),
+        String(Boolean(elementsMatched)),
+        String(Boolean(leadingAtParts)),
+        String(config.allowLeadingAtBeforeCommand),
+      );
+      logger.info(
+        "leading-at debug: elements-count=%s elements-types=%s",
+        String(sessionElements.length),
+        JSON.stringify(sessionElements.map((element) => element?.type || "")),
+      );
+      if (contentMatched) {
+        logger.info(
+          "leading-at debug: content command=%s suffix=%s segments=%s",
+          JSON.stringify(contentMatched.commandText),
+          JSON.stringify(contentMatched.suffix),
+          JSON.stringify(contentMatched.leadingAtSegments),
+        );
+      }
+      if (elementsMatched) {
+        logger.info(
+          "leading-at debug: elements command=%s suffix=%s segments=%s",
+          JSON.stringify(elementsMatched.commandText),
+          JSON.stringify(elementsMatched.suffix),
+          JSON.stringify(elementsMatched.leadingAtSegments),
+        );
+      }
+    }
+
+    if (!leadingAtParts) {
+      if (config.enableDeveloperDebugLog) {
+        logger.info("leading-at debug: pass-through middleware");
+      }
+      return await next();
+    }
+
+    const isMentioningSelf = Boolean(session.stripped?.atSelf) || leadingAtParts.leadingAtSegments.includes(`<at id="${session.selfId}"/>`);
+    const isMemeCommand = /^meme$/i.test(leadingAtParts.commandText.trim());
+
+    if (isMentioningSelf && !isMemeCommand) {
+      if (config.enableDeveloperDebugLog) {
+        logger.info("leading-at debug: pass-through at-self non-meme");
+      }
+      return await next();
+    }
+
+    if (!config.allowLeadingAtBeforeCommand) {
+      if (config.enableDeveloperDebugLog) {
+        logger.info(
+          "leading-at debug: pass-through because allowLeadingAtBeforeCommand=false",
+        );
+      }
+      return await next();
+    }
+
+    const normalizedCommandText = leadingAtParts.commandText.trim();
+    const normalizedSuffix = leadingAtParts.suffix.trim();
+    // Koishi 会在 matcher 回调前过滤“@其他用户 别名”，因此该格式必须在中间件中改写。
+    if (
+      config.enableDirectAliasWithoutPrefix &&
+      shouldRegisterDirectAlias(normalizedCommandText)
+    ) {
+      const resolvedKey = await resolveMemeKey(normalizedCommandText);
+      if (resolvedKey !== normalizedCommandText) {
+        const rewrittenCommand = normalizedSuffix
+          ? `meme ${resolvedKey} ${normalizedSuffix}`
+          : `meme ${resolvedKey}`;
+        const executed = await session.execute(rewrittenCommand, true);
+        if (config.enableDeveloperDebugLog) {
+          logger.info(
+            "leading-at debug: alias rewritten=%s execute returned=%s",
+            JSON.stringify(rewrittenCommand),
+            JSON.stringify(executed),
+          );
+        }
+        if (executed.length) await session.send(executed);
+        return;
+      }
+    }
+
+    // 普通前置 @ 消息必须继续放行，避免把对话内容当成 meme key 后吞掉。
+    if (!/^meme$/i.test(normalizedCommandText)) {
+      if (config.enableDeveloperDebugLog) {
+        logger.info("leading-at debug: pass-through non-meme command");
+      }
+      return await next();
+    }
+
+    const rewrittenCommand = normalizedSuffix
+      ? `meme ${normalizedSuffix}`
+      : "meme";
+
+    if (config.enableDeveloperDebugLog) {
+      logger.info(
+        "leading-at debug: rewritten=%s",
+        JSON.stringify(rewrittenCommand),
+      );
+    }
+
+    const executed = await session.execute(rewrittenCommand, true);
+    if (config.enableDeveloperDebugLog) {
+      logger.info(
+        "leading-at debug: execute returned=%s",
+        JSON.stringify(executed),
+      );
+    }
+    if (executed.length) await session.send(executed);
+  }, true);
+
+  const executePreview = async (
+    key: string,
+    session?: unknown,
+  ): Promise<string | ReturnType<typeof h.image>> => {
+    if (!key) return handleErrorReply("meme.preview", "请提供模板 key。");
+
+    try {
+      await ensureCategoryExcludedMemeKeySet();
+      const resolvedKey = await resolveMemeKey(key);
+      if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
+        return handleErrorReply("meme.preview", "该模板已被排除。");
+      }
+      const preview = await client.getPreview(resolvedKey);
+      return h.image(Buffer.from(preview.buffer), preview.mimeType);
+    } catch (error) {
+      return handleRuntimeError("meme.preview", error);
+    }
+  };
+
+  ctx.command("meme.list", "列出可用 meme 模板").action(async ({ session }) => {
+    try {
+      const oldMergedExcludedCount = mergedExcludedMemeKeySet(session).size;
+      const rawKeys = await client.getKeys();
+      await ensureCategoryExcludedMemeKeySet(rawKeys, true);
+      const keys = filterExcludedMemeKeys(
+        rawKeys,
+        mergedExcludedMemeKeySet(session),
+      );
+      if (oldMergedExcludedCount !== mergedExcludedMemeKeySet(session).size) {
+        logger.info(
+          "meme category exclusion loaded: %d keys",
+          categoryExcludedMemeKeySet.size,
+        );
+      }
+      if (keys.length === 0)
+        return replyOrSilent(
+          config,
+          logger,
+          "meme.list",
+          "当前后端没有可用模板。",
+        );
+
+      const infoResults = await fetchMemeListInfos(client, keys, config);
+      const entries = buildMemeListEntries(
+        infoResults,
+        config.showMemeListKey,
+      );
+      const sections = buildMemeListSections(entries);
+      const lines = formatMemeListLines(sections);
+      if (lines.length === 0)
+        return replyOrSilent(
+          config,
+          logger,
+          "meme.list",
+          "当前后端没有可用模板。",
+        );
+
+      if (!config.renderMemeListAsImage) {
+        const chunks = splitMemeListMessages(sections);
+        if (config.sendMemeListAsForward) {
+          const sent = await sendMemeListForwardMessage(
+            session,
+            sections,
+            logger,
+          );
+          if (sent) return;
+        }
+        if (session) {
+          for (const chunk of chunks) {
+            await session.send(chunk);
+          }
+          return;
+        }
+        return chunks.join("\n");
+      }
+
+      const images = await buildListImages(
+        sections,
+        lines,
+        config.memeListImageMode,
+        logger,
+      );
+      if (!images) return lines.join("\n");
+      if (images.length > 1 && config.sendMemeListAsForward) {
+        const sent = await sendMemeListImageForwardMessage(
+          session,
+          images,
+          logger,
+        );
+        if (sent) return;
+      }
+      return formatMemeListImageMessage(images);
+    } catch (error) {
+      return handleRuntimeError("meme.list", error);
+    }
+  });
+
+  ctx
+    .command("meme.search <关键词:string>", "搜索 meme 模板")
+    .action(async ({ session }, keyword) => {
+      if (!keyword)
+        return handleErrorReply("meme.search", "用法：meme.search <关键词>");
+      try {
+        const rawKeys = await client.getKeys();
+        await ensureCategoryExcludedMemeKeySet(rawKeys, true);
+        const keys = filterExcludedMemeKeys(
+          rawKeys,
+          mergedExcludedMemeKeySet(session),
+        );
+        if (keys.length === 0)
+          return replyOrSilent(
+            config,
+            logger,
+            "meme.search",
+            "当前后端没有可用模板。",
+          );
+
+        const infoResults = await fetchMemeListInfos(client, keys, config);
+        const results = searchMemeInfos(infoResults, keyword);
+        if (results.length === 0) return `未找到相关表情：${keyword}`;
+        const message = formatMemeSearchResultMessage(results);
+        if (
+          config.sendMemeSearchAsForward &&
+          (await sendMemeSearchForwardMessage(
+            session,
+            message,
+            results.length,
+            logger,
+          ))
+        ) {
+          return;
+        }
+        return message;
+      } catch (error) {
+        return handleRuntimeError("meme.search", error);
+      }
+    });
+
+  ctx
+    .command("meme.info <key:string>", "查看模板参数约束")
+    .action(async ({ session }, key) => {
+      if (!key) return handleErrorReply("meme.info", "请提供模板 key。");
+      try {
+        await ensureCategoryExcludedMemeKeySet();
+        const resolvedKey = await resolveMemeKey(key);
+        if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
+          return handleErrorReply("meme.info", "该模板已被排除。");
+        }
+        const info = await client.getInfo(resolvedKey);
+        const params = info.params_type;
+        const aliases = collectChineseAliases(info);
+        return [
+          `key: ${info.key}`,
+          `aliases: ${aliases.join(" | ") || "(无)"}`,
+          `images: ${params.min_images} ~ ${params.max_images}`,
+          `texts: ${params.min_texts} ~ ${params.max_texts}`,
+          `default_texts: ${params.default_texts.join(" | ") || "(空)"}`,
+        ].join("\n");
+      } catch (error) {
+        return handleRuntimeError("meme.info", error);
+      }
+    });
+
+  ctx
+    .command("meme.preview <key:string>", "预览模板效果")
+    .action(async ({ session }, key) => executePreview(key, session));
+
+  const aliasLogger = logger;
+  let initializedNotified = false;
+
+  const notifyInitializedSummary = (count: number): void => {
+    if (initializedNotified) return;
+    initializedNotified = true;
+    logger.info("Loaded %d memes", count);
+  };
+
+  const isExcludedFromGlobalSet = (key: string): boolean => {
+    return isExcludedMemeKey(key, mergedGlobalExcludedMemeKeySet());
+  };
+
+  const isExcludedFromMergedSet = (
+    key: string,
+    session?: unknown,
+  ): boolean => {
+    return isExcludedMemeKey(key, mergedExcludedMemeKeySet(session));
+  };
+
+  const filterExcludedFromMergedSet = (
+    keys: string[],
+    session?: unknown,
+  ): string[] => {
+    return filterExcludedMemeKeys(keys, mergedExcludedMemeKeySet(session));
+  };
+
+  if (
+    config.enableDirectAliasWithoutPrefix ||
+    config.allowKeyWithoutPrefixTrigger
+  ) {
+    installDirectAliasRuntime({
+      ctx,
+      config,
+      client,
+      logger: aliasLogger,
+      ensureCategoryExcludedMemeKeySet,
+      notifyInitializedSummary,
+      isGloballyExcludedMemeKey: isExcludedFromGlobalSet,
+      isSessionExcludedMemeKey: isExcludedFromMergedSet,
+      handleGenerate: async (session, key, texts) => {
+        return await handleGenerate(ctx, session, client, config, key, texts);
+      },
+    });
+  } else {
+    let initRetryTimer: ReturnType<typeof setTimeout> | undefined;
+    let initRetryAttempts = 0;
+    let initRetryDisposed = false;
+    const maxInitRetryAttempts = config.initLoadRetryTimes;
+
+    const clearInitRetryTimer = (): void => {
+      if (initRetryTimer) {
+        clearTimeout(initRetryTimer);
+        initRetryTimer = undefined;
+      }
+    };
+
+    const stopInitRetry = (): void => {
+      clearInitRetryTimer();
+    };
+
+    const scheduleInitRetry = (delayMs: number): void => {
+      if (initRetryDisposed) return;
+      if (initRetryTimer) return;
+      if (initRetryAttempts >= maxInitRetryAttempts) {
+        aliasLogger.warn(
+          "初始化时获取表情列表重试在 %d 次后停止",
+          initRetryAttempts,
+        );
+        stopInitRetry();
+        return;
+      }
+
+      initRetryTimer = setTimeout(() => {
+        if (initRetryDisposed) {
+          initRetryTimer = undefined;
+          return;
+        }
+        initRetryTimer = undefined;
+        initRetryAttempts += 1;
+
+        void client
+          .getKeys()
+          .then((keys) => {
+            if (initRetryDisposed) {
+              stopInitRetry();
+              return;
+            }
+            notifyInitializedSummary(keys.length);
+            initRetryAttempts = 0;
+            stopInitRetry();
+          })
+          .catch((retryError) => {
+            if (initRetryDisposed) {
+              stopInitRetry();
+              return;
+            }
+            aliasLogger.warn(
+              "初始化时获取表情列表失败（attempt %d/%d）: %s",
+              initRetryAttempts,
+              maxInitRetryAttempts,
+              String(retryError),
+            );
+            scheduleInitRetry(3000);
+          });
+      }, delayMs);
+    };
+
+    void (async () => {
+      try {
+        const rawKeys = await client.getKeys();
+        await ensureCategoryExcludedMemeKeySet(rawKeys, true);
+        const keyCount = filterExcludedMemeKeys(
+          rawKeys,
+          mergedGlobalExcludedMemeKeySet(),
+        ).length;
+        notifyInitializedSummary(keyCount);
+      } catch (error) {
+        aliasLogger.warn("初始化时获取表情列表失败: %s", String(error));
+        scheduleInitRetry(3000);
+      }
+    })();
+
+    ctx.effect(() => () => {
+      initRetryDisposed = true;
+      stopInitRetry();
+    });
+  }
+
+  // 只控制主生成命令；关闭后保留 meme.* 子命令，让 Koishi help 仍能列出可用子指令。
+  if (config.enableMemeCommandTrigger) {
+    ctx
+      .command("meme <key:string> [...texts]", "生成 meme 图片", {
+        captureQuote: false,
+      })
+      .action(async ({ session }, key, ...texts) => {
+        if (!session)
+          return handleErrorReply("meme.generate", "当前上下文不可用。");
+        try {
+          await ensureCategoryExcludedMemeKeySet();
+          // 贴合写法会把 key/中文别名和 @ 提及挤在同一个 Koishi 参数里，
+          // 这里先拆出最长模板前缀，避免 @ 目标被后续逻辑误当成普通文本。
+          const mergedTrigger = config.allowMentionPrefixDirectAliasTrigger
+            ? await resolveMemeTriggerPrefix(key)
+            : undefined;
+          const resolvedKey = mergedTrigger?.key ?? (await resolveMemeKey(key));
+          if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
+            return handleErrorReply("meme.generate", "该模板已被排除。");
+          }
+          const mergedTexts = mergedTrigger
+            ? [
+                ...normalizeMergedTriggerRestText(
+                  mergedTrigger.rest,
+                  session,
+                ),
+                ...texts,
+              ]
+            : texts;
+          return await handleGenerate(
+            ctx,
+            session,
+            client,
+            config,
+            resolvedKey,
+            mergedTexts,
+          );
+        } catch (error) {
+          return handleRuntimeError("meme.generate", error);
+        }
+      });
+  }
+
+  installRandomRuntime({
+    ctx,
+    config,
+    client,
+    logger,
+    ensureCategoryExcludedMemeKeySet,
+    filterExcludedMemeKeys: filterExcludedFromMergedSet,
+    handleGenerateWithPreparedInput: async (
+      key: string,
+      texts: string[],
+      images: PreparedImages,
+      senderAvatarImage?: PreparedAvatarImage,
+      mentionedAvatarImages?: PreparedImages,
+      botAvatarImage?: PreparedAvatarImage,
+      senderName?: string,
+      groupNicknameText?: string,
+      preferredTextSource?: "template-default" | "user-nickname",
+    ) => {
+      return await handleGenerateWithPreparedInput(
+        client,
+        buildRandomConfig(config),
+        key,
+        texts,
+        images,
+        senderAvatarImage,
+        mentionedAvatarImages,
+        botAvatarImage,
+        senderName,
+        groupNicknameText,
+        preferredTextSource,
+      );
+    },
+    handleErrorReply,
+    handleRuntimeError,
+  });
+  return { client, resolveMemeKey, ensureCategoryExcludedMemeKeySet, isExcludedMemeKey: isExcludedFromMergedSet };
+}

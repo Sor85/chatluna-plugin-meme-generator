@@ -1,0 +1,60 @@
+{
+  "name": "chatluna-plugin-meme-generator",
+  "version": "0.0.1",
+  "description": "为 ChatLuna v2 提供表情包生成、随机模板、头像与文字补全、列表预览、模板筛选和原生 meme 动作",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["chatluna-plugin", "meme", "meme-generator"],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "README.md", "LICENSE"],
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "sync": "node scripts/sync-to-v2.mjs --once",
+    "sync:watch": "node scripts/sync-to-v2.mjs",
+    "build": "yakumo build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fontsource-variable/noto-sans-kr": "5.2.10",
+    "@fontsource-variable/noto-sans-sc": "5.2.10",
+    "@takumi-rs/core": "1.8.7",
+    "@takumi-rs/helpers": "1.8.7"
+  },
+  "peerDependencies": {
+    "@chatluna/message": ">=2.0.0-alpha.0",
+    "@chatluna/schema": ">=2.0.0-alpha.0",
+    "@chatluna/utils": ">=2.0.0-alpha.0",
+    "@satorijs/core": "~4.6.1",
+    "cordis": "^4.0.0-rc.12"
+  },
+  "devDependencies": {
+    "@chatluna/chat": "workspace:*",
+    "@chatluna/message": "workspace:*",
+    "@chatluna/permission": "workspace:*",
+    "@chatluna/satori": "workspace:*",
+    "@chatluna/schema": "workspace:*",
+    "@chatluna/storage-files": "workspace:*",
+    "@chatluna/tool": "workspace:*",
+    "@chatluna/utils": "workspace:*",
+    "@cordisjs/plugin-database": "4.2.0",
+    "@cordisjs/plugin-http": "^1.5.2",
+    "@satorijs/core": "~4.6.1",
+    "cordis": "4.0.0-rc.12",
+    "koishi": "npm:@koishijs/core@4.18.11",
+    "typescript": "7.0.2",
+    "vitest": "^3.2.4"
+  },
+  "cordis": {
+    "description": {
+      "zh": "表情包生成、随机去重、头像与文字补全及原生 meme 动作",
+      "en": "Meme generation, random selection, avatar/text completion and native meme actions"
+    },
+    "service": { "required": ["koishi", "http"], "optional": ["tools", "chat", "chatluna_storage"] }
+  }
+}
