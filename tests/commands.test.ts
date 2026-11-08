@@ -98,6 +98,7 @@ describe('v2 真实平台命令桥', () => {
     await app.receive('你好贴合文字')
     expect(app.backend.generated[0].texts).toEqual(['贴合文字'])
     await app.fiber.dispose()
+    expect(app.ctx.$commander.get('meme')).toBeUndefined()
     expect(app.ctx.$commander.get('meme.info')).toBeUndefined()
     expect(app.ctx.$processor._matchers.size).toBe(0)
   })
@@ -116,6 +117,79 @@ describe('v2 真实平台命令桥', () => {
     await app.receive(`${image}普通图片消息`)
     expect(passed).toBe(true)
     expect(app.backend.generated).toHaveLength(2)
+  })
+
+  it.each(Array.from({ length: 32 }, (_, mask) => ({
+    enableMemeCommandTrigger: Boolean(mask & 1),
+    enableDirectAliasWithoutPrefix: Boolean(mask & 2),
+    allowLeadingAtBeforeCommand: Boolean(mask & 4),
+    allowKeyWithoutPrefixTrigger: Boolean(mask & 8),
+    allowMentionPrefixDirectAliasTrigger: Boolean(mask & 16)
+  })))('前置中文别名不依赖主命令、key 或贴合开关：%j', async (config) => {
+    const app = await setup(config)
+    const aliasEnabled = config.enableDirectAliasWithoutPrefix && config.allowLeadingAtBeforeCommand
+    await app.receive('<at id="other"/> 你好 第一段 第二段')
+    expect(app.backend.generated).toHaveLength(Number(aliasEnabled))
+    expect(app.sent.filter((text) => text.includes('<img'))).toHaveLength(Number(aliasEnabled))
+    if (aliasEnabled) expect(app.backend.generated[0].texts).toEqual(['第一段', '第二段'])
+    await app.receive('meme hello 主命令')
+    expect(app.backend.generated).toHaveLength(Number(aliasEnabled) + Number(config.enableMemeCommandTrigger))
+  })
+
+  it.each([false, true])('前置中文别名保留引号文案边界：主命令=%s', async (enabled) => {
+    const app = await setup({
+      enableMemeCommandTrigger: enabled, enableDirectAliasWithoutPrefix: true,
+      allowLeadingAtBeforeCommand: true
+    })
+    await app.receive('<at id="other"/> 你好 "第一段 文案" 第二段')
+    await app.receive('<at id="other"/> 你好 “中文 空格” user@example.com')
+    expect(app.backend.generated.map((item) => item.texts)).toEqual([
+      ['第一段 文案', '第二段'], ['中文 空格', 'user@example.com']
+    ])
+    expect(app.sent.filter((text) => text.includes('<img'))).toHaveLength(2)
+  })
+
+  it.each([
+    { excludedMemeKeys: ['HELLO'] },
+    { groupExcludedMemeKeys: [{ groupId: 'group', excludedMemeKeys: ['HELLO'] }] },
+    { excludeTextOnlyMemes: true }
+  ])('前置中文别名保持模板排除与错误静默策略：%j', async (exclusion) => {
+    for (const silent of [false, true]) {
+      const app = await setup({
+        enableMemeCommandTrigger: false, enableDirectAliasWithoutPrefix: true,
+        allowLeadingAtBeforeCommand: true, disableErrorReplyToPlatform: silent, ...exclusion
+      })
+      await app.receive('<at id="other"/> 你好 测试')
+      expect(app.backend.generated).toHaveLength(0)
+      expect(app.sent.join('')).toBe(silent ? '' : '该模板已被排除。')
+    }
+  })
+
+  it.each([false, true])('前置中文别名的后端错误遵守静默配置：%s', async (silent) => {
+    const app = await setup({
+      enableMemeCommandTrigger: false, enableDirectAliasWithoutPrefix: true,
+      allowLeadingAtBeforeCommand: true, disableErrorReplyToPlatform: silent
+    })
+    app.backend.failures.set('hello', 541)
+    await app.receive('<at id="other"/> 你好 测试')
+    expect(app.backend.generated).toHaveLength(1)
+    expect(app.sent.join('')).toBe(silent ? '' : '模板生成失败')
+  })
+
+  it.each([false, true])('主命令提及仅参与头像补全，不进入文案：静默=%s', async (silent) => {
+    const app = await setup({ disableErrorReplyToPlatform: silent })
+    app.backend.templates.set('portrait', meme('portrait', { min_images: 1, max_images: 1, min_texts: 0, max_texts: 0, default_texts: [] }))
+    app.bot.getUser = async (id: string) => ({ id, name: id, avatar: `data:image/png;base64,${id === 'other' ? 'BAUG' : 'AQID'}` })
+    await app.receive('meme portrait <at id="other"/>')
+    expect(app.backend.generated[0].texts).toEqual([])
+    expect(app.backend.generated[0].images).toHaveLength(1)
+    const image = app.backend.generated[0].images[0]
+    if (typeof image === 'string') throw new Error('应上传目标头像文件')
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(Buffer.from([4, 5, 6]))
+    expect(app.sent.filter((text) => text.includes('<img'))).toHaveLength(1)
+    await app.receive('meme hello <at id="other"/> "带空格 文案" user@example.com')
+    expect(app.backend.generated[1].texts).toEqual(['带空格 文案', 'user@example.com'])
+    expect(app.sent.filter((text) => text.includes('<img'))).toHaveLength(2)
   })
 
   it('内联发送者与机器人头像经过原有策略补全', async () => {

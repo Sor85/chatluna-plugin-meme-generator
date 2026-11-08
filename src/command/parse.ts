@@ -38,7 +38,7 @@ export async function parseCommandInput(
   rawTexts: string[],
   config: Config,
 ): Promise<ParsedInput> {
-  const textsFromArgs = rawTexts.map((text) => text.replace(/<img\b[^>]*>(?:<\/img>)?/gi, " ").trim()).filter(Boolean);
+  const textsFromArgs = rawTexts.map((text) => text.replace(/<(img|at)\b[^>]*>(?:<\/\1>)?/gi, " ").trim()).filter(Boolean);
   const quotedElements = session.quote?.elements || [];
   const quotedTexts =
     config.enableQuotedTextTrigger && textsFromArgs.length === 0

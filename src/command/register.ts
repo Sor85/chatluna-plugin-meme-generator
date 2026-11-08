@@ -242,6 +242,7 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
     infoFetchConcurrency: config.infoFetchConcurrency,
   });
   const logger = ctx.logger;
+  const memeCommand = ctx.command("meme");
 
   const handleErrorReply = (scope: string, message: string): string => {
     if (!config.disableErrorReplyToPlatform) return message;
@@ -335,25 +336,36 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
 
     const normalizedCommandText = leadingAtParts.commandText.trim();
     const normalizedSuffix = leadingAtParts.suffix.trim();
-    // Koishi 会在 matcher 回调前过滤“@其他用户 别名”，因此该格式必须在中间件中改写。
+    // Koishi 会在 matcher 前过滤“@其他用户 别名”，此入口直接生成，不能依赖主命令开关。
     if (
       config.enableDirectAliasWithoutPrefix &&
       shouldRegisterDirectAlias(normalizedCommandText)
     ) {
       const resolvedKey = await resolveMemeKey(normalizedCommandText);
       if (resolvedKey !== normalizedCommandText) {
-        const rewrittenCommand = normalizedSuffix
-          ? `meme ${resolvedKey} ${normalizedSuffix}`
-          : `meme ${resolvedKey}`;
-        const executed = await session.execute(rewrittenCommand, true);
+        let result;
+        try {
+          await ensureCategoryExcludedMemeKeySet();
+          if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
+            result = handleErrorReply("meme.generate", "该模板已被排除。");
+          } else {
+            // 仅复用父命令的参数解析，保留引号边界，不执行受开关控制的主命令。
+            const { args = [], error } = memeCommand.parse(normalizedSuffix);
+            result = error
+              ? handleErrorReply("meme.generate", error)
+              : await handleGenerate(ctx, session, client, config, resolvedKey, args);
+          }
+        } catch (error) {
+          result = handleRuntimeError("meme.generate", error);
+        }
         if (config.enableDeveloperDebugLog) {
           logger.info(
-            "leading-at debug: alias rewritten=%s execute returned=%s",
-            JSON.stringify(rewrittenCommand),
-            JSON.stringify(executed),
+            "leading-at debug: alias=%s key=%s",
+            JSON.stringify(normalizedCommandText),
+            JSON.stringify(resolvedKey),
           );
         }
-        if (executed.length) await session.send(executed);
+        if (result) await session.send(result);
         return;
       }
     }
