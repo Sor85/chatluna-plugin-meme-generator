@@ -2,7 +2,7 @@
 
 适用范围：`src/`。同时遵守根 `AGENTS.md`；回归测试见 `tests/AGENTS.md`。
 
-- `config.ts` 保留源 0.0.34 的键名、默认值、八组配置与浅合并规则，使用 `@chatluna/schema` 和中文 label。两组权重数组使用 `meme-generator:weights` 角色，由客户端子目录的表格扩展渲染；其他数组仍由宿主默认表单渲染。
+- `config.ts` 保留源 0.0.34 的键名、八组配置与浅合并规则，使用 `@chatluna/schema` 和中文 label。默认值沿用迁移基线，但 `allowKeyWithoutPrefixTrigger` 默认开启；必须保留用户显式配置的 `false`。两组权重数组使用 `meme-generator:weights` 角色，由客户端子目录的表格扩展渲染；其他数组仍由宿主默认表单渲染。
 - `index.ts` 可选注入 `chatluna_webui` 并注册客户端入口；没有 WebUI 时命令、后端与工具仍能独立加载。
 - `backend.ts` 封装 meme-generator Python HTTP 协议，保留重复 multipart 字段、空 args 和 key 编码；校验返回结构，限制大小并传播超时/取消。
 - `command/` 保留六个命令、别名、随机、列表与分群排除语义；v2 命令桥的 `session.execute` 默认自动发送；重写命令使用 `execute(input, true)` 捕获结果后只发送一次。

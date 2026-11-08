@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { Config, defaultConfig } from '../src/config'
 
 describe('配置与项目说明', () => {
-  it('保留迁移基线默认值与八组设置，所有字段有中文标签', () => {
+  it('默认配置与八组设置一致，所有字段有中文标签', () => {
     expect(Config({})).toEqual(defaultConfig)
     expect(Config.list).toHaveLength(8)
     for (const group of Config.list ?? []) {
@@ -26,6 +26,13 @@ describe('配置与项目说明', () => {
     expect(fields.emptyTextAutoFillRules.meta.role).toBe('meme-generator:weights')
     expect(fields.excludedMemeKeys.meta.role).toBe('table')
     expect(fields.groupExcludedMemeKeys.meta.role).toBe('table')
+  })
+  it('无前缀模板键默认开启，显式关闭值保持不变', () => {
+    const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
+    expect(defaultConfig.allowKeyWithoutPrefixTrigger).toBe(true)
+    expect(fields.allowKeyWithoutPrefixTrigger.meta.default).toBe(true)
+    expect(Config({}).allowKeyWithoutPrefixTrigger).toBe(true)
+    expect(Config({ allowKeyWithoutPrefixTrigger: false }).allowKeyWithoutPrefixTrigger).toBe(false)
   })
   it('规则数组整体替换，拒绝非法范围', () => {
     expect(Config({ emptyTextAutoFillRules: [] }).emptyTextAutoFillRules).toEqual([])

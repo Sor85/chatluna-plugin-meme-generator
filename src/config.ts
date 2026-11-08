@@ -101,7 +101,7 @@ export const defaultConfig: Config = {
   sendMemeSearchAsForward: true,
   enableMemeCommandTrigger: true,
   enableDirectAliasWithoutPrefix: true,
-  allowKeyWithoutPrefixTrigger: false,
+  allowKeyWithoutPrefixTrigger: true,
   allowMentionPrefixDirectAliasTrigger: false,
   allowLeadingAtBeforeCommand: false,
   enableDeveloperDebugLog: false,
@@ -240,7 +240,7 @@ const triggerSchema = Schema.object({
     .default(defaultConfig.enableDirectAliasWithoutPrefix)
     .description("是否允许中文别名跳过 meme 前缀直接触发"),
   allowKeyWithoutPrefixTrigger: Schema.boolean()
-    .default(defaultConfig.allowKeyWithoutPrefixTrigger ?? false)
+    .default(defaultConfig.allowKeyWithoutPrefixTrigger ?? true)
     .description("是否允许`key`跳过 meme 前缀直接触发"),
   allowMentionPrefixDirectAliasTrigger: Schema.boolean()
     .default(defaultConfig.allowMentionPrefixDirectAliasTrigger)

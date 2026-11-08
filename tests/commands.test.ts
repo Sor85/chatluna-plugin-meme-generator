@@ -71,6 +71,27 @@ describe('v2 真实平台命令桥', () => {
     expect(enabled.sent.join('')).not.toContain('不能进入聊天处理')
   })
 
+  it('默认允许模板 key 无前缀触发，不依赖中文别名开关', async () => {
+    const app = await setup()
+    await vi.waitFor(() => expect(app.ctx.$processor._matchers.size).toBeGreaterThan(0))
+    await app.receive('hello 无前缀文字')
+    expect(app.backend.generated).toHaveLength(1)
+    expect(app.backend.generated[0].key).toBe('hello')
+    expect(app.backend.generated[0].texts).toEqual(['无前缀文字'])
+    expect(app.sent.filter((text) => text.includes('<img'))).toHaveLength(1)
+  })
+
+  it('显式关闭模板 key 直触发后放行聊天，带前缀命令仍可用', async () => {
+    const app = await setup({ allowKeyWithoutPrefixTrigger: false })
+    let passed = false
+    app.ctx.middleware(() => { passed = true })
+    await app.receive('hello 普通聊天')
+    expect(passed).toBe(true)
+    expect(app.backend.generated).toHaveLength(0)
+    expect(await app.execute('meme hello 命令文字')).toContain('<img')
+    expect(app.backend.generated[0].texts).toEqual(['命令文字'])
+  })
+
   it('无前缀别名和贴合参数由独立开关控制，卸载后移除', async () => {
     const app = await setup({ enableDirectAliasWithoutPrefix: true, allowMentionPrefixDirectAliasTrigger: true, enableMemeCommandTrigger: false })
     await vi.waitFor(() => expect(app.ctx.$processor._matchers.size).toBeGreaterThan(0))
