@@ -155,17 +155,6 @@ export async function measureTakumiLayout(
   });
 }
 
-/**
- * 按 CSS 宽度测量渲染结果高度（单位：CSS 像素）。
- */
-export async function measureTakumiHtml(
-  html: string,
-  width: number,
-): Promise<number> {
-  const measured = await measureTakumiLayout(html, width);
-  return Math.ceil(measured.height);
-}
-
 export async function renderTakumiHtml(
   html: string,
   width: number,

@@ -9,10 +9,6 @@ import type {
 } from "../config";
 import type { MemeParamsType } from "../types";
 
-export interface RandomMemeCandidateBase {
-  key: string;
-}
-
 export interface RandomMemeBucketChoice<T> {
   bucketCategory: RandomMemeBucketCategory;
   candidates: T[];

@@ -477,7 +477,6 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
 
       const images = await buildListImages(
         sections,
-        lines,
         config.memeListImageMode,
         logger,
       );
@@ -773,5 +772,5 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
     handleErrorReply,
     handleRuntimeError,
   });
-  return { client, resolveMemeKey, ensureCategoryExcludedMemeKeySet, isExcludedMemeKey: isExcludedFromMergedSet };
+  return { client, resolveMemeKey, isExcludedMemeKey: isExcludedFromMergedSet };
 }

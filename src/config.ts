@@ -49,7 +49,7 @@ export interface Config {
   sendMemeSearchAsForward: boolean;
   enableMemeCommandTrigger: boolean;
   enableDirectAliasWithoutPrefix: boolean;
-  allowKeyWithoutPrefixTrigger?: boolean;
+  allowKeyWithoutPrefixTrigger: boolean;
   allowMentionPrefixDirectAliasTrigger: boolean;
   allowLeadingAtBeforeCommand: boolean;
   enableDeveloperDebugLog: boolean;
@@ -59,7 +59,6 @@ export interface Config {
   memeActionQueueTimeoutSeconds: number;
   memeActionQueueLimit: number;
   memeSearchCacheMinutes: number;
-  injectMemeXmlToolAsReplyTool: boolean;
   enableRandomDedupeWithinHours: boolean;
   randomDedupeWindowHours: number;
   enableRandomKeywordNotice: boolean;
@@ -73,7 +72,7 @@ export interface Config {
   excludeImageAndTextMemes: boolean;
   excludeOtherMemes: boolean;
   excludedMemeKeys: string[];
-  groupExcludedMemeKeys?: GroupExcludedMemeKeyRule[];
+  groupExcludedMemeKeys: GroupExcludedMemeKeyRule[];
   showMemeListKey: boolean;
 }
 
@@ -114,7 +113,6 @@ export const defaultConfig: Config = {
   memeActionQueueTimeoutSeconds: 30,
   memeActionQueueLimit: 5,
   memeSearchCacheMinutes: 30,
-  injectMemeXmlToolAsReplyTool: false,
   enableRandomDedupeWithinHours: true,
   randomDedupeWindowHours: 24,
   enableRandomKeywordNotice: true,
@@ -232,7 +230,7 @@ const triggerSchema = Schema.object({
     .default(defaultConfig.enableDirectAliasWithoutPrefix)
     .description("是否允许中文别名跳过 meme 前缀直接触发"),
   allowKeyWithoutPrefixTrigger: Schema.boolean()
-    .default(defaultConfig.allowKeyWithoutPrefixTrigger ?? true)
+    .default(defaultConfig.allowKeyWithoutPrefixTrigger)
     .description("是否允许`key`跳过 meme 前缀直接触发"),
   allowMentionPrefixDirectAliasTrigger: Schema.boolean()
     .default(defaultConfig.allowMentionPrefixDirectAliasTrigger)
@@ -265,10 +263,6 @@ const triggerSchema = Schema.object({
     .min(1).max(1440).step(1)
     .default(defaultConfig.memeSearchCacheMinutes)
     .description("模板检索元数据的内存缓存时长（分钟），过期或重启后重新读取后端模板资料"),
-  injectMemeXmlToolAsReplyTool: Schema.boolean()
-    .default(defaultConfig.injectMemeXmlToolAsReplyTool)
-    .hidden()
-    .description("旧版工具调用回复兼容项；v2 使用原生 meme 动作发送图片、meme_search 查询模板，不再注入 character_reply 字段"),
 }).description("触发方式设置");
 
 const filterSchema = Schema.object({
@@ -301,7 +295,7 @@ const filterSchema = Schema.object({
     }),
   )
     .role("table")
-    .default(defaultConfig.groupExcludedMemeKeys ?? [])
+    .default(defaultConfig.groupExcludedMemeKeys)
     .description("分群排除模板`key`列表"),
 }).description("模板筛选设置");
 
@@ -361,7 +355,7 @@ const labels: Record<string, string> = {
   enableMemeCommandTrigger: "生成命令", enableDirectAliasWithoutPrefix: "无前缀别名",
   allowKeyWithoutPrefixTrigger: "无前缀模板键", allowMentionPrefixDirectAliasTrigger: "贴合参数", allowLeadingAtBeforeCommand: "前置提及",
   enableDeveloperDebugLog: "调试日志", randomOutputMemeKey: "固定随机模板",
-  enableMemeXmlTool: "原生动作与工具", injectMemeXmlToolAsReplyTool: "旧工具回复兼容项",
+  enableMemeXmlTool: "原生动作与工具",
   memeActionConcurrency: "表情动作并发", memeActionQueueTimeoutSeconds: "动作排队超时", memeActionQueueLimit: "每会话等待上限", memeSearchCacheMinutes: "模板索引缓存",
   enableRandomDedupeWithinHours: "随机去重", randomDedupeWindowHours: "去重窗口", enableRandomKeywordNotice: "随机模板提示",
   randomMemeBucketWeightRules: "随机类别权重", infoFetchConcurrency: "信息拉取并发", initLoadRetryTimes: "初始化重试",

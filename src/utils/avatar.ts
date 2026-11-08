@@ -4,7 +4,7 @@
  */
 
 import type { Context } from "cordis";
-import type { Session } from "@satorijs/core";
+import type { Session, Universal } from "@satorijs/core";
 import type {} from "koishi";
 import type { GenerateImageInput } from "../types";
 import { downloadImage } from "./image";
@@ -14,8 +14,6 @@ interface ElementLike {
   attrs?: {
     id?: unknown;
     name?: unknown;
-    userId?: unknown;
-    qq?: unknown;
   };
   children?: ElementLike[];
 }
@@ -29,25 +27,6 @@ export function getSenderAvatarSrc(session: Session): string | undefined {
 
   const fromEvent = session.event.user?.avatar;
   if (fromEvent) return String(fromEvent);
-
-  return undefined;
-}
-
-export function getSenderDisplayName(session: Session): string | undefined {
-  const memberNick = normalizeDisplayName(session.author?.nick);
-  if (memberNick) return memberNick;
-
-  const memberName = normalizeDisplayName(session.author?.name);
-  if (memberName) return memberName;
-
-  const eventNick = normalizeDisplayName(session.event.user?.nick);
-  if (eventNick) return eventNick;
-
-  const eventName = normalizeDisplayName(session.event.user?.name);
-  if (eventName) return eventName;
-
-  const username = normalizeDisplayName(session.username);
-  if (username) return username;
 
   return undefined;
 }
@@ -122,7 +101,7 @@ function getMentionedUsers(elements: readonly ElementLike[] = []): Array<{
   const walk = (nodes: readonly ElementLike[]): void => {
     for (const node of nodes) {
       if (node.type === "at") {
-        const rawId = node.attrs?.id ?? node.attrs?.userId ?? node.attrs?.qq;
+        const rawId = node.attrs?.id;
         const userId = rawId ? String(rawId).trim() : "";
 
         if (
@@ -174,46 +153,16 @@ function normalizeDisplayName(value: unknown): string | undefined {
   return trimmed;
 }
 
-function getDisplayNameFromMember(member: unknown): string | undefined {
-  if (!member || typeof member !== "object") return undefined;
-
-  const memberRecord = member as {
-    nick?: unknown;
-    name?: unknown;
-    user?: {
-      nick?: unknown;
-      name?: unknown;
-      nickname?: unknown;
-      username?: unknown;
-    };
-  };
-
+function getDisplayNameFromMember(member: Universal.GuildMember): string | undefined {
   return (
-    normalizeDisplayName(memberRecord.nick) ||
-    normalizeDisplayName(memberRecord.name) ||
-    normalizeDisplayName(memberRecord.user?.nick) ||
-    normalizeDisplayName(memberRecord.user?.name) ||
-    normalizeDisplayName(memberRecord.user?.nickname) ||
-    normalizeDisplayName(memberRecord.user?.username)
+    normalizeDisplayName(member.nick) ||
+    normalizeDisplayName(member.name) ||
+    (member.user && getDisplayNameFromUser(member.user))
   );
 }
 
-function getDisplayNameFromUser(user: unknown): string | undefined {
-  if (!user || typeof user !== "object") return undefined;
-
-  const userRecord = user as {
-    nick?: unknown;
-    name?: unknown;
-    nickname?: unknown;
-    username?: unknown;
-  };
-
-  return (
-    normalizeDisplayName(userRecord.nick) ||
-    normalizeDisplayName(userRecord.name) ||
-    normalizeDisplayName(userRecord.nickname) ||
-    normalizeDisplayName(userRecord.username)
-  );
+function getDisplayNameFromUser(user: Universal.User): string | undefined {
+  return normalizeDisplayName(user.nick) || normalizeDisplayName(user.name);
 }
 
 export async function resolveAvatarSrcByUserId(
@@ -396,42 +345,6 @@ export async function getMentionedAvatarImages(
   }
 
   return images;
-}
-
-export async function getMentionedTargetAvatarImage(
-  ctx: Context,
-  session: Session,
-  timeoutMs: number,
-): Promise<GenerateImageInput | undefined> {
-  const targetUser = pickMentionedTargetUser(session);
-  if (!targetUser) return undefined;
-
-  return await resolveMentionedAvatarImage(
-    ctx,
-    session,
-    timeoutMs,
-    targetUser.userId,
-    "mentioned-avatar",
-    "被@用户头像",
-  );
-}
-
-export async function getMentionedSecondaryAvatarImage(
-  ctx: Context,
-  session: Session,
-  timeoutMs: number,
-): Promise<GenerateImageInput | undefined> {
-  const targetUsers = pickMentionedTargetUsers(session);
-  if (targetUsers.length < 2) return undefined;
-
-  return await resolveMentionedAvatarImage(
-    ctx,
-    session,
-    timeoutMs,
-    targetUsers[1].userId,
-    "mentioned-secondary-avatar",
-    "第二被@用户头像",
-  );
 }
 
 export async function getMentionedTargetDisplayName(

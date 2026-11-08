@@ -42,7 +42,6 @@ interface OneBotForwardSession {
   channelId?: string;
   guildId?: string;
   groupId?: string;
-  roomId?: string;
   event?: {
     message_type?: string;
     guild?: { id?: string };
@@ -54,16 +53,10 @@ interface OneBotForwardSession {
     internal?: OneBotForwardInternal;
     selfId?: string;
     user?: {
-      id?: unknown;
-      name?: unknown;
-      nick?: unknown;
-      nickname?: unknown;
-      username?: unknown;
+      id?: string;
+      name?: string;
+      nick?: string;
     };
-    name?: string;
-    nick?: string;
-    nickname?: string;
-    username?: string;
   };
 }
 
@@ -107,18 +100,7 @@ function resolveForwardSender(session: OneBotForwardSession): {
     toOneBotId(session.selfId) ||
     toOneBotId(session.bot?.selfId) ||
     0;
-  const name =
-    String(
-      user?.name ||
-        user?.nick ||
-        user?.nickname ||
-        user?.username ||
-        session.bot?.name ||
-        session.bot?.nick ||
-        session.bot?.nickname ||
-        session.bot?.username ||
-        "meme.list",
-    ).trim() || "meme.list";
+  const name = (user?.name || user?.nick || "meme.list").trim() || "meme.list";
 
   return { id, name };
 }
@@ -643,13 +625,6 @@ export function formatMemeListLines(sections: MemeListSection[]): string[] {
   return lines;
 }
 
-function toBase64(data: unknown): string | undefined {
-  if (Buffer.isBuffer(data)) return data.toString("base64");
-  if (data instanceof Uint8Array) return Buffer.from(data).toString("base64");
-  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("base64");
-  return undefined;
-}
-
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -657,43 +632,6 @@ function escapeXml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-export function stringifyImageSegment(
-  image: ReturnType<typeof h.image>,
-): string {
-  const normalize = (h as { normalize?: (value: unknown) => unknown[] })
-    .normalize;
-  if (typeof normalize === "function") {
-    const normalized = normalize(image)
-      .map((value) => String(value))
-      .join("");
-    if (normalized.trim()) return normalized;
-  }
-
-  const text = String(image);
-  if (text && text !== "[object Object]") return text;
-
-  const imageLike = image as unknown as {
-    attrs?: { src?: unknown; url?: unknown };
-    mimeType?: unknown;
-    buffer?: unknown;
-  };
-
-  const source = imageLike.attrs?.src ?? imageLike.attrs?.url;
-  if (typeof source === "string" && source.trim()) {
-    return `<img src="${source.trim()}"/>`;
-  }
-
-  const base64 = toBase64(imageLike.buffer);
-  if (!base64) return "<img/>";
-
-  const mimeType =
-    typeof imageLike.mimeType === "string" && imageLike.mimeType.trim()
-      ? imageLike.mimeType.trim()
-      : "image/png";
-
-  return `<img src="data:${mimeType};base64,${base64}"/>`;
 }
 
 export const MEME_LIST_IMAGE_LAYOUT_WIDTH = 1200;
@@ -722,7 +660,7 @@ export function resolveMemeListImageColumns(): number {
 
 function buildMemeListImageDocument(body: string): string {
   const columns = resolveMemeListImageColumns();
-  return `<!doctype html><html><head><meta charset="utf-8"/><style>body{margin:0;padding:0;background:#f5f7fb;}#list{width:${MEME_LIST_IMAGE_LAYOUT_WIDTH}px;padding:${MEME_LIST_IMAGE_PADDING}px;box-sizing:border-box;color:#0f172a;font-family:"Noto Sans SC",sans-serif;}.section{margin:0 0 ${MEME_LIST_IMAGE_SECTION_GAP}px 0;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#ffffff;}.section-title{padding:12px 16px;background:#e2e8f0;border-bottom:1px solid #cbd5e1;font-size:${MEME_LIST_IMAGE_TITLE_FONT_SIZE}px;line-height:1.4;font-weight:700;}.alias-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));}.alias-cell{padding:10px 12px;font-size:${MEME_LIST_IMAGE_ALIAS_FONT_SIZE}px;line-height:1.5;border-right:1px solid #dbe3ee;border-bottom:1px solid #dbe3ee;word-break:break-word;overflow-wrap:anywhere;background:#ffffff;}.alias-cell:nth-child(2n){background:#f8fafc;}.line{font-size:${MEME_LIST_IMAGE_ALIAS_FONT_SIZE}px;line-height:1.6;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;}</style></head><body><div id="list">${body}</div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"/><style>body{margin:0;padding:0;background:#f5f7fb;}#list{width:${MEME_LIST_IMAGE_LAYOUT_WIDTH}px;padding:${MEME_LIST_IMAGE_PADDING}px;box-sizing:border-box;color:#0f172a;font-family:"Noto Sans SC",sans-serif;}.section{margin:0 0 ${MEME_LIST_IMAGE_SECTION_GAP}px 0;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#ffffff;}.section-title{padding:12px 16px;background:#e2e8f0;border-bottom:1px solid #cbd5e1;font-size:${MEME_LIST_IMAGE_TITLE_FONT_SIZE}px;line-height:1.4;font-weight:700;}.alias-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));}.alias-cell{padding:10px 12px;font-size:${MEME_LIST_IMAGE_ALIAS_FONT_SIZE}px;line-height:1.5;border-right:1px solid #dbe3ee;border-bottom:1px solid #dbe3ee;word-break:break-word;overflow-wrap:anywhere;background:#ffffff;}.alias-cell:nth-child(2n){background:#f8fafc;}</style></head><body><div id="list">${body}</div></body></html>`;
 }
 
 export function buildMemeListImageHtml(blocks: MemeListImageBlock[]): string {
@@ -733,14 +671,6 @@ export function buildMemeListImageHtml(blocks: MemeListImageBlock[]): string {
         .join("");
       return `<section class="section"><div class="section-title">${escapeXml(block.title)}</div><div class="alias-grid">${aliasCells}</div></section>`;
     })
-    .join("");
-
-  return buildMemeListImageDocument(body);
-}
-
-function buildMemeListImageLinesHtml(lines: string[]): string {
-  const body = lines
-    .map((line) => `<div class="line">${escapeXml(line)}</div>`)
     .join("");
 
   return buildMemeListImageDocument(body);
@@ -859,10 +789,8 @@ export async function paginateMemeListImageSections(
 
 async function buildMemeListImageDocuments(
   sections: MemeListSection[],
-  lines: string[],
   mode: MemeListImageMode,
 ): Promise<string[]> {
-  if (sections.length === 0) return [buildMemeListImageLinesHtml(lines)];
   if (mode !== "multiple") return [buildMemeListImageHtml(sections)];
 
   const pages = await paginateMemeListImageSections(sections);
@@ -877,33 +805,24 @@ interface MemeListImageCacheEntry {
 // 模板列表基本不变，缓存上一次的渲染结果，避免重复执行分页测量与出图
 let memeListImageCache: MemeListImageCacheEntry | undefined;
 
-function createMemeListImageCacheKey(
-  sections: MemeListSection[],
-  lines: string[],
-  mode: MemeListImageMode,
-): string {
-  return JSON.stringify([mode, sections.length > 0 ? sections : lines]);
-}
-
 /**
  * 把模板列表渲染成 PNG：single 合成一张长图，multiple 按页高拆成多张。
  * 渲染失败时返回 undefined，由调用方退回文本。
  */
 export async function buildListImages(
   sections: MemeListSection[],
-  lines: string[],
   mode: MemeListImageMode,
   logger: Context["logger"],
 ): Promise<Buffer[] | undefined> {
   try {
-    const cacheKey = createMemeListImageCacheKey(sections, lines, mode);
+    const cacheKey = JSON.stringify([mode, sections]);
     if (memeListImageCache?.key === cacheKey) {
       return memeListImageCache.images;
     }
 
     // 高密度出图：布局宽度按 CSS 像素算，再按 deviceScaleFactor 放大出图，
     // 否则 2400px 宽的图里字号只占 0.67%，QQ 等客户端按屏幕宽度缩放后就会糊成一团。
-    const documents = await buildMemeListImageDocuments(sections, lines, mode);
+    const documents = await buildMemeListImageDocuments(sections, mode);
     const images: Buffer[] = [];
     for (const html of documents) {
       images.push(
@@ -926,6 +845,6 @@ export async function buildListImages(
 /** 把列表图片拼成同一条消息里的图片段。 */
 export function formatMemeListImageMessage(images: Buffer[]): string {
   return images
-    .map((image) => stringifyImageSegment(h.image(image, "image/png")))
+    .map((image) => String(h.image(image, "image/png")))
     .join("");
 }

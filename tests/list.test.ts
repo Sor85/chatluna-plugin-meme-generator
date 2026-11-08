@@ -1,7 +1,8 @@
+import { h } from '@satorijs/core'
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../src/config'
-import { buildCategoryExcludedMemeKeySet, buildListImages, buildMemeListEntries, buildMemeListSections, searchMemeInfos, sendMemeListForwardMessage, splitMemeListMessages } from '../src/command/register/meme-list'
+import { buildCategoryExcludedMemeKeySet, buildListImages, buildMemeListEntries, buildMemeListSections, formatMemeListImageMessage, searchMemeInfos, sendMemeListForwardMessage, splitMemeListMessages } from '../src/command/register/meme-list'
 import { MemeBackendClient } from '../src/backend'
 import { resolveRandomMemeBucket } from '../src/command/random'
 import { backendFixture, meme } from './helpers/backend'
@@ -41,12 +42,38 @@ describe('列表、分页与转发', () => {
       expect(await sendMemeListForwardMessage(session, [{ title: '标题', aliases: ['你好'] }], ctx.logger)).toBe(false)
     } finally { await ctx.fiber.dispose() }
   })
+  it('列表图片由标准 Satori 元素序列化，保留全部图片内容', () => {
+    const images = [Buffer.from([1, 2, 3]), Buffer.from([4, 5, 6])]
+    const elements = h.parse(formatMemeListImageMessage(images))
+    expect(elements.map((element) => element.type)).toEqual(['img', 'img'])
+    expect(elements.map((element) => element.attrs.src)).toEqual([
+      'data:image/png;base64,AQID', 'data:image/png;base64,BAUG'
+    ])
+  })
+  it.each([
+    { user: { id: 'bot', name: '标准名称', nick: '标准昵称' }, expected: '标准名称' },
+    { user: { id: 'bot', nick: '标准昵称' }, expected: '标准昵称' },
+    { user: { id: 'bot', nickname: '旧昵称', username: '旧用户名' }, expected: 'meme.list' }
+  ])('转发发送者只使用标准用户名称：$expected', async ({ user, expected }) => {
+    const ctx = new Context()
+    try {
+      const request = vi.fn().mockResolvedValue({ status: 'ok', retcode: 0 })
+      const session = { platform: 'onebot', guildId: '123', bot: { user, internal: { _request: request } } }
+      expect(await sendMemeListForwardMessage(session, [{ title: '标题', aliases: ['你好'] }], ctx.logger)).toBe(true)
+      expect(request).toHaveBeenCalledWith('send_group_forward_msg', expect.objectContaining({
+        messages: [
+          expect.objectContaining({ data: expect.objectContaining({ name: expected, content: '标题' }) }),
+          expect.objectContaining({ data: expect.objectContaining({ name: expected, content: '你好' }) })
+        ]
+      }))
+    } finally { await ctx.fiber.dispose() }
+  })
   it('Takumi 实际渲染中韩文字，单图及多图均为 2400 像素宽', async () => {
     const ctx = new Context()
     try {
       const sections = [{ title: '文字与图片', aliases: Array.from({ length: 210 }, (_, index) => `模板${index} 안녕하세요`) }]
-      const single = await buildListImages(sections, [], 'single', ctx.logger)
-      const multiple = await buildListImages(sections, [], 'multiple', ctx.logger)
+      const single = await buildListImages(sections, 'single', ctx.logger)
+      const multiple = await buildListImages(sections, 'multiple', ctx.logger)
       expect(single).toHaveLength(1)
       expect(multiple?.length).toBeGreaterThan(1)
       for (const image of [...single ?? [], ...multiple ?? []]) {

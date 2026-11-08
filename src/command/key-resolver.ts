@@ -76,8 +76,6 @@ function pickKeyCandidate(keyCandidates: readonly string[]): string | undefined 
   return keyCandidates[Math.floor(Math.random() * keyCandidates.length)];
 }
 
-const INFO_FETCH_CONCURRENCY = 10;
-
 function resolveInfoFetchConcurrency(
   options: KeyResolverOptions,
   keyCount: number,

@@ -39,7 +39,6 @@
     "@chatluna/chat": "workspace:*",
     "@chatluna/message": "workspace:*",
     "@chatluna/permission": "workspace:*",
-    "@chatluna/satori": "workspace:*",
     "@chatluna/schema": "workspace:*",
     "@chatluna/storage-files": "workspace:*",
     "@chatluna/tool": "workspace:*",

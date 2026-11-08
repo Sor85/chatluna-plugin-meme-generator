@@ -4,64 +4,24 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Config } from "../src/config";
+import { defaultConfig, type Config } from "../src/config";
 import { applyAutoFillPolicy } from "../src/domain/policy";
 import type { GenerateImageInput, MemeParamsType } from "../src/types";
 
 const baseConfig: Config = {
+  ...defaultConfig,
   baseUrl: "http://127.0.0.1:2233",
   timeoutMs: 10000,
   emptyTextAutoFillRules: [
-    {
-      source: "template-default",
-      enabled: true,
-      weight: 100,
-    },
-    {
-      source: "user-nickname",
-      enabled: false,
-      weight: 100,
-    },
+    { source: "template-default", enabled: true, weight: 100 },
+    { source: "user-nickname", enabled: false, weight: 100 },
   ],
-  autoUseAvatarWhenMinImagesOneAndNoImage: true,
-  autoFillOneMissingImageWithAvatar: true,
-  autoFillSenderAndBotAvatarsWhenMinImagesTwoAndNoImage: true,
   autoUseGroupNicknameWhenNoDefaultText: false,
-  enableQuotedImageTrigger: true,
-  enableQuotedTextTrigger: false,
   renderMemeListAsImage: false,
-  memeListImageMode: "single",
-  sendMemeListAsForward: true,
-  sendMemeSearchAsForward: true,
-  enableMemeCommandTrigger: true,
-  enableDirectAliasWithoutPrefix: true,
   allowKeyWithoutPrefixTrigger: false,
-  allowMentionPrefixDirectAliasTrigger: false,
-  allowLeadingAtBeforeCommand: false,
-  enableDeveloperDebugLog: false,
-  randomOutputMemeKey: "",
-  showMemeListKey: false,
-  enableMemeXmlTool: false,
-  injectMemeXmlToolAsReplyTool: false,
   enableRandomDedupeWithinHours: false,
-  randomDedupeWindowHours: 24,
   enableRandomKeywordNotice: false,
-  randomMemeBucketWeightRules: [
-    { category: "text-only", enabled: true, weight: 100 },
-    { category: "single-image-only", enabled: true, weight: 100 },
-    { category: "two-image-only", enabled: true, weight: 100 },
-    { category: "image-and-text", enabled: true, weight: 100 },
-    { category: "other", enabled: true, weight: 100 },
-  ],
-  infoFetchConcurrency: 0,
-  initLoadRetryTimes: 3,
   disableErrorReplyToPlatform: false,
-  excludeTextOnlyMemes: false,
-  excludeSingleImageOnlyMemes: false,
-  excludeTwoImageOnlyMemes: false,
-  excludeImageAndTextMemes: false,
-  excludeOtherMemes: false,
-  excludedMemeKeys: [],
 };
 
 function makeImage(name: string): GenerateImageInput {

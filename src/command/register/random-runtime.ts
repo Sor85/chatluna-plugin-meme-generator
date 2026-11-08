@@ -27,7 +27,6 @@ import {
 } from "../../utils/avatar";
 import { buildRandomConfig, type PreparedAvatarImage } from "./generate";
 import { mapRuntimeErrorMessage, replyOrSilent } from "./errors";
-import { stringifyImageSegment } from "./meme-list";
 import { resolveFirstDirectAlias } from "./direct-alias-runtime";
 
 interface InstallRandomRuntimeOptions {
@@ -255,7 +254,7 @@ export function installRandomRuntime(
               return [
                 `key：${randomCandidate.key}`,
                 `别名：${aliasText}`,
-                stringifyImageSegment(result),
+                String(result),
               ].join("\n");
             }
 

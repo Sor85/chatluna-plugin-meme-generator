@@ -124,7 +124,7 @@ export function buildGroupExcludedMemeKeySets(
 ): Map<string, Set<string>> {
   const groupExcludedSets = new Map<string, Set<string>>();
 
-  for (const rule of config.groupExcludedMemeKeys ?? []) {
+  for (const rule of config.groupExcludedMemeKeys) {
     const groupId = normalizeGroupId(rule.groupId);
     if (!groupId) continue;
 

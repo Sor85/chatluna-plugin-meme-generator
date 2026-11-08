@@ -26,8 +26,6 @@ function collectMentionTokens(session: Session): string[] {
       if (element.type === "at") {
         appendMentionToken(element.attrs?.id);
         appendMentionToken(element.attrs?.name);
-        appendMentionToken(element.attrs?.userId);
-        appendMentionToken(element.attrs?.qq);
       }
       if (element.children?.length) walk(element.children);
     }

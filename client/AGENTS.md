@@ -7,4 +7,4 @@
 - 表格与按钮复用 `@chatluna/ui-kit`，单元格调用 SchemaForm 的 `render(..., { embedded: true })`，保留宿主校验和控件行为。外层使用 `extensionProps` 保留整组恢复默认、撤销与 JSON 编辑。
 - 不改变数组数据语义：保留顺序、重复类别、零权重、空数组及未知字段；编辑只通过 `onChange` 交回宿主保存。新增行显式填入子字段默认值，避免必填类别仅显示而未保存。
 - 表格根容器显式指定字号与行高。横向溢出沿用宿主 Table 容器；不覆盖宿主滚动条、指针或弹窗行为。图标沿用宿主 Lucide。
-- 客户端由宿主 `chatluna-webui` 构建到 `dist`，源码目录不生成产物。新增 Tailwind 类名后完整重启宿主再验证。
+- 客户端由宿主 `chatluna-webui` 构建到 `dist`，源码目录不生成产物。`@chatluna/ui-client` 即使没有直接 import 也必须保留为开发依赖：宿主 `packages/ui/client/src/yakumo.ts` 用它识别需要构建客户端的工作区。新增 Tailwind 类名后完整重启宿主再验证。

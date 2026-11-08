@@ -27,6 +27,10 @@ describe('配置与项目说明', () => {
     expect(fields.excludedMemeKeys.meta.role).toBe('table')
     expect(fields.groupExcludedMemeKeys.meta.role).toBe('table')
   })
+  it('保留宿主识别客户端构建所需的依赖声明', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+    expect(manifest.devDependencies['@chatluna/ui-client']).toBe('workspace:*')
+  })
   it('无前缀模板键默认开启，显式关闭值保持不变', () => {
     const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
     expect(defaultConfig.allowKeyWithoutPrefixTrigger).toBe(true)
@@ -34,12 +38,13 @@ describe('配置与项目说明', () => {
     expect(Config({}).allowKeyWithoutPrefixTrigger).toBe(true)
     expect(Config({ allowKeyWithoutPrefixTrigger: false }).allowKeyWithoutPrefixTrigger).toBe(false)
   })
-  it('不再提供动作参考提示词，旧配置仍能加载原生工具', () => {
+  it('不提供旧版工具回复兼容项或动作参考提示词', () => {
     const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
-    expect(fields).not.toHaveProperty('memeXmlReferencePrompt')
-    expect(defaultConfig).not.toHaveProperty('memeXmlReferencePrompt')
-    expect(Config({})).not.toHaveProperty('memeXmlReferencePrompt')
-    expect(Config({ memeXmlReferencePrompt: '旧版参考文本', enableMemeXmlTool: true }).enableMemeXmlTool).toBe(true)
+    for (const name of ['injectMemeXmlToolAsReplyTool', 'memeXmlReferencePrompt']) {
+      expect(fields).not.toHaveProperty(name)
+      expect(defaultConfig).not.toHaveProperty(name)
+      expect(Config({})).not.toHaveProperty(name)
+    }
     expect(fields.enableMemeXmlTool).toBeDefined()
   })
   it('仅保留关键词检索缓存配置，不提供嵌入模型或阈值选项', () => {

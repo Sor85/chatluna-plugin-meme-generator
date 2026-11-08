@@ -2,8 +2,8 @@
 
 适用范围：`src/`。同时遵守根 `AGENTS.md`；回归测试见 `tests/AGENTS.md`。
 
-- `config.ts` 沿用源 0.0.34 仍有效配置的键名、八组分组与浅合并规则，使用 `@chatluna/schema` 和中文 label。默认值沿用迁移基线，但 `allowKeyWithoutPrefixTrigger` 默认开启；必须保留用户显式配置的 `false`。检索仅使用本地关键词匹配，不调用模型。两组权重数组使用 `meme-generator:weights` 角色，由客户端子目录的表格扩展渲染；其他数组仍由宿主默认表单渲染。
-- 动作能力与参数由原生工具/动作定义提供，不在配置中保留不参与执行的参考提示词字段。删除此类字段时同步移除类型、默认文本、Schema 与标签，旧配置中的多余键不应阻断加载。
+- `config.ts` 使用 `@chatluna/schema`、八组设置和中文 label，`Config` 表示已补全默认值的配置；`allowKeyWithoutPrefixTrigger` 默认开启，必须保留用户显式配置的 `false`。检索仅使用本地关键词匹配，不调用模型。两组权重数组使用 `meme-generator:weights` 角色，由客户端子目录的表格扩展渲染；其他数组仍由宿主默认表单渲染。
+- 动作能力与参数由原生工具/动作定义提供，不在配置中保留不参与执行的参考提示词字段。删除此类字段时同步移除类型、默认文本、Schema 与标签，不为旧字段增加转换或回退分支。
 - `index.ts` 可选注入 `chatluna_webui` 并注册客户端入口；没有 WebUI 时命令、后端与工具仍能独立加载。
 - `backend.ts` 封装 meme-generator Python HTTP 协议，保留重复 multipart 字段、空 args 和 key 编码；校验返回结构，限制大小并传播超时/取消。
 - `command/` 保留六个命令、别名、随机、列表与分群排除语义；v2 命令桥的 `session.execute` 默认自动发送；重写命令使用 `execute(input, true)` 捕获结果后只发送一次。前置提及的中文别名通过始终存在的 `meme` 父命令解析参数以保留引号边界，再直接调用生成管线，不执行主生成命令，避免受 `enableMemeCommandTrigger` 影响；该入口仍检查全局、分群与分类排除，并遵守错误静默设置。
@@ -13,8 +13,9 @@
 - `action-queue.ts` 以稳定平台会话隔离动作：包括平台、机器人、群/频道或私聊用户，使用结构化键避免分隔符碰撞，不使用单条消息或 agent 标识。同一会话 FIFO，不同会话受 `memeActionConcurrency` 限制（默认 4）；繁忙会话轮转，不抢占其他等待会话。排队取消立即移除，失败释放槽，运行中取消必须等实际任务退出再释放槽。
 - 动作执行超时在获得槽位后开始；等待期限独立控制，默认 30 秒，每会话最多等待 5 条（均可配置），插件实例最多等待 100 条。排队超时或超限明确失败且不补发，调度前再次检查绝对期限，清理取消/到期任务的监听与计时器。排队期间仍响应 agent 取消与插件卸载；并发控制只作用于 XML 表情动作，不改变人工命令和普通聊天策略。
 - 查询取消传入后端请求；动作结合插件卸载、超时以及可取得的当前 agent signal 取消，发送前再次检查。禁止把 XML 属性中的会话标识作为可信 ActionContext。
-- `enableMemeXmlTool` 控制原生工具/动作启用；旧 `injectMemeXmlToolAsReplyTool` 仅保留配置兼容，v2 不存在旧 character_reply 字段注入。
+- `enableMemeXmlTool` 控制 v2 原生工具/动作启用；不保留旧版插件的配置兼容项、字段迁移或 character_reply 注入逻辑。
 - 网络图片仅允许公网 HTTP(S)，逐次校验重定向并绑定经过验证的 DNS 地址，流读取上限 10 MiB；平台内联图片支持同样大小上限的 PNG/JPEG/GIF/WebP Base64 Data URL，不接受 SVG 或任意本地路径。管理员配置的后端可以位于内网。
 - 图片段可以位于命令前后：执行时保留原会话图片与提及供图片解析、头像和昵称补全使用，只从命令文本参数剔除 `img`、`at` 元素，不把提及当作模板文案；普通文字与已解析的参数边界保持不变。图片前置的普通聊天必须继续放行。
-- `render/takumi.ts` 和列表排版保留原来的 Takumi、中韩字体及 PNG 分页，不使用浏览器截图。不新增数据库、业务持久化或生成图片落盘。
+- 平台提及仅读取标准 `at.id/name`，用户与群成员昵称使用 Satori 的 `nick/name`；不兼容旧 `at.userId/qq` 或 User 的 `nickname/username`。Koishi 桥的 `session.username` 与当前适配器的原始协议数据仍是有效输入，不按旧字段处理。图片消息由 Satori `h.image` 创建并使用其标准字符串序列化，不支持旧图片对象格式。
+- `render/takumi.ts` 和列表排版保留 Takumi、中韩字体及 PNG 分页，不使用浏览器截图。列表图片只从分类数据构建；渲染失败仍退回文本，不保留不可达的纯文本图片布局。不新增数据库、业务持久化或生成图片落盘。
 - 初始化重试、别名 matcher 与待处理请求都在插件卸载时释放；不使用旧 `ready` / `dispose` 生命周期事件。

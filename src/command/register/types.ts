@@ -5,8 +5,6 @@ export interface ElementLike {
   attrs?: {
     id?: unknown;
     name?: unknown;
-    userId?: unknown;
-    qq?: unknown;
   };
   children?: ElementLike[];
 }
