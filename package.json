@@ -1,7 +1,7 @@
 {
   "name": "chatluna-plugin-meme-generator",
   "version": "0.0.2",
-  "description": "为 ChatLuna v2 提供表情包生成、随机模板、头像与文字补全、列表预览、模板筛选和原生 meme 动作",
+  "description": "为 ChatLuna 提供表情包生成、随机模板、头像与文字补全、列表预览、模板筛选和原生 meme 动作",
   "type": "module",
   "license": "MIT",
   "keywords": ["chatluna-plugin", "meme", "meme-generator"],
