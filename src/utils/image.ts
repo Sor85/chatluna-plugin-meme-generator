@@ -8,10 +8,11 @@ import { imageMimeType } from '../backend'
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const blocked = new BlockList()
+// 198.18.0.0/15 不拦截：Clash/mihomo 等代理的 fake-ip 模式会把所有公网域名解析到该段，实际目标由代理决定。
 for (const [address, prefix] of [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
   ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
-  ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24],
+  ['192.168.0.0', 16], ['198.51.100.0', 24], ['203.0.113.0', 24],
   ['224.0.0.0', 4], ['240.0.0.0', 4]
 ] satisfies [string, number][]) blocked.addSubnet(address, prefix, 'ipv4')
 for (const [address, prefix] of [
@@ -64,7 +65,9 @@ export async function downloadImage(
       const hostname = url.hostname.replace(/^\[|\]$/g, '')
       const addresses = isIP(hostname) ? [{ address: hostname, family: isIP(hostname) }] : await lookup(hostname, { all: true })
       combined.throwIfAborted()
-      if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) throw new Error('图片地址禁止访问本机或内网')
+      if (!addresses.length) throw new Error(`图片地址 ${hostname} 无法解析`)
+      const privateAddress = addresses.find(({ address }) => !isPublicAddress(address))
+      if (privateAddress) throw new Error(`图片地址禁止访问本机或内网（${hostname} → ${privateAddress.address}）`)
       const address = addresses[0]
       const response = await new Promise<import('node:http').IncomingMessage>((resolve, reject) => {
         const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
