@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ChatMessage, fileRefTableOf, type ChatFileBlock } from '@chatluna/message'
+import { ChatMessage, type ChatFileBlock } from '@chatluna/message'
+import { fileRefTableOf } from '@chatluna/transform'
 import type { ActionContext } from '@chatluna/chat'
 import { host } from './helpers/host'
 import { PNG, meme } from './helpers/backend'

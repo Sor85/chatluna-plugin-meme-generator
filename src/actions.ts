@@ -1,6 +1,7 @@
 import type { Context } from 'cordis'
 import { Schema } from '@chatluna/schema'
-import { fileRefTableOf, type ChatMessage } from '@chatluna/message'
+import type { ChatMessage } from '@chatluna/message'
+import { fileRefTableOf } from '@chatluna/transform'
 import { h } from '@satorijs/core'
 import type {} from '@chatluna/chat'
 import type {} from '@chatluna/agent'

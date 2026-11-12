@@ -28,8 +28,8 @@
     "@takumi-rs/helpers": "1.8.7"
   },
   "peerDependencies": {
-    "@chatluna/message": ">=2.0.0-alpha.0",
     "@chatluna/schema": ">=2.0.0-alpha.0",
+    "@chatluna/transform": ">=2.0.0-alpha.0",
     "@chatluna/utils": ">=2.0.0-alpha.0",
     "@satorijs/core": "~4.6.1",
     "cordis": "^4.0.0-rc.12"
@@ -42,6 +42,7 @@
     "@chatluna/schema": "workspace:*",
     "@chatluna/storage-files": "workspace:*",
     "@chatluna/tool": "workspace:*",
+    "@chatluna/transform": "workspace:*",
     "@chatluna/ui-client": "workspace:*",
     "@chatluna/ui-kit": "workspace:*",
     "@chatluna/ui-schema-form": "workspace:*",
