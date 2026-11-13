@@ -186,7 +186,7 @@ describe("applyAutoFillPolicy", () => {
     randomSpy.mockRestore();
   });
 
-  it("模板至少需要两段文字时不使用昵称来源并回退默认文案", () => {
+  it("多段模板选中昵称来源时昵称替换首段并沿用其余默认文案", () => {
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.95);
 
     const result = applyAutoFillPolicy({
@@ -215,9 +215,33 @@ describe("applyAutoFillPolicy", () => {
       senderName: "小明",
     });
 
-    expect(result.texts).toEqual(["第一段", "第二段"]);
-    expect(result.selectedTextSource).toBe("template-default");
+    expect(result.texts).toEqual(["小明", "第二段"]);
+    expect(result.selectedTextSource).toBe("user-nickname");
     randomSpy.mockRestore();
+  });
+
+  it("多段模板默认文案不足以凑满最少段数时不使用昵称来源", () => {
+    const result = applyAutoFillPolicy({
+      texts: [],
+      images: [],
+      params: makeParams({
+        min_texts: 3,
+        max_texts: 3,
+        default_texts: ["第一段"],
+      }),
+      config: {
+        ...baseConfig,
+        emptyTextAutoFillRules: [
+          { source: "user-nickname", enabled: true, weight: 100 },
+          { source: "template-default", enabled: true, weight: 100 },
+        ],
+      },
+      senderName: "小明",
+      preferredTextSource: "user-nickname",
+    });
+
+    expect(result.texts).toEqual(["第一段"]);
+    expect(result.selectedTextSource).toBe("template-default");
   });
 
   it("回退来源权重为 0 时不应参与补文案", () => {
@@ -246,7 +270,6 @@ describe("applyAutoFillPolicy", () => {
           },
         ],
       },
-      senderName: "小明",
     });
 
     expect(result.texts).toEqual([]);
@@ -505,8 +528,31 @@ describe("applyAutoFillPolicy", () => {
       senderName: "用户昵称",
     });
 
-    expect(result.texts).toEqual(["用户输入", "默认1"]);
+    expect(result.texts).toEqual(["用户输入", "默认2"]);
     expect(result.selectedTextSource).toBe("template-default");
+  });
+
+  it("多段模板已提供首段时按段位补齐默认文案，不再插入昵称", () => {
+    const result = applyAutoFillPolicy({
+      texts: ["张三"],
+      images: [],
+      params: makeParams({
+        min_texts: 3,
+        max_texts: 4,
+        default_texts: ["小王", "优秀学生", "一年一班"],
+      }),
+      config: {
+        ...baseConfig,
+        emptyTextAutoFillRules: [
+          { source: "user-nickname", enabled: true, weight: 100 },
+          { source: "template-default", enabled: true, weight: 100 },
+        ],
+      },
+      senderName: "小明",
+      preferredTextSource: "user-nickname",
+    });
+
+    expect(result.texts).toEqual(["张三", "优秀学生", "一年一班"]);
   });
 
   it("min_images=1 且 max_images=2 且无图时若存在两个被@头像应优先补两张被@头像", () => {

@@ -70,10 +70,18 @@ function getTemplateDefaultTexts(params: MemeParamsType): string[] {
   return params.default_texts.filter(Boolean);
 }
 
-function getUserNicknameText(senderName?: string): string[] {
+function getUserNicknameText(
+  params: MemeParamsType,
+  senderName?: string,
+): string[] {
   const trimmedName = senderName?.trim();
   if (!trimmedName) return [];
-  return [trimmedName];
+  if (params.min_texts <= 1) return [trimmedName];
+
+  // 多段模板（如奖状）首段多为人名：昵称替换首段，其余沿用默认文案；
+  // 默认文案不足以凑满最少段数时视为该来源不可用。
+  const texts = [trimmedName, ...getTemplateDefaultTexts(params).slice(1)];
+  return texts.length >= params.min_texts ? texts : [];
 }
 
 function getSourceTexts(
@@ -85,9 +93,7 @@ function getSourceTexts(
     return getTemplateDefaultTexts(params);
   }
 
-  if (params.min_texts > 1) return [];
-
-  return getUserNicknameText(senderName);
+  return getUserNicknameText(params, senderName);
 }
 
 function choosePreferredRule(
@@ -206,13 +212,19 @@ export function applyAutoFillPolicy(input: AutoFillInput): AutoFillResult {
       input.preferredTextSource,
     );
 
+    // 已有部分文字时按段位补齐缺额：用户写了首段，就从第二段默认文案接着补，
+    // 避免默认首段错位到后面；补全来源段数不够按位补时再从头取。
+    const missingCount = Math.max(0, input.params.min_texts - texts.length);
+    const positionalTexts = resolved.texts.slice(
+      texts.length,
+      input.params.min_texts,
+    );
     const fallbackTexts =
       texts.length === 0
         ? resolved.texts
-        : resolved.texts.slice(
-            0,
-            Math.max(0, input.params.min_texts - texts.length),
-          );
+        : positionalTexts.length === missingCount
+          ? positionalTexts
+          : resolved.texts.slice(0, missingCount);
 
     if (fallbackTexts.length > 0) {
       texts.push(...fallbackTexts);
