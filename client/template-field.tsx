@@ -62,8 +62,7 @@ function Preview({ value }: { value: string }) {
   return <span ref={placeholder} className="block size-full rounded-sm bg-muted" />
 }
 
-/** `role('meme-generator:templates')`: template keys picked from a grid of their previews. */
-export function TemplateListField(props: SchemaRendererProps) {
+function TemplatePicker({ props, empty, bulk = false }: { props: SchemaRendererProps; empty: string; bulk?: boolean }) {
   const query = useLive('meme-generator.templates')
   const failed = query.data?.failed ?? 0
   return (
@@ -71,7 +70,8 @@ export function TemplateListField(props: SchemaRendererProps) {
       <PickerListField
         props={props}
         layout="grid"
-        empty="未选择模板，模型需先通过 meme_search 查找模板。"
+        bulk={bulk}
+        empty={empty}
         source={{
           groups: GROUPS.map((group) => failed && group.id === 'other' ? { ...group, note: `${failed} 个模板信息读取失败，未列出` } : group),
           items: (query.data?.templates ?? []).map((template) => ({
@@ -89,4 +89,14 @@ export function TemplateListField(props: SchemaRendererProps) {
       />
     </div>
   )
+}
+
+/** `role('meme-generator:templates')`: templates written into the model prompt. No select-all: it would put hundreds of templates there. */
+export function TemplateListField(props: SchemaRendererProps) {
+  return <TemplatePicker props={props} empty="未选择模板，模型需先通过 meme_search 查找模板。" />
+}
+
+/** `role('meme-generator:excluded-templates')`: excluded templates; select-all then unpicking a few keeps only those. */
+export function ExcludedTemplateField(props: SchemaRendererProps) {
+  return <TemplatePicker props={props} bulk empty="未排除模板。" />
 }

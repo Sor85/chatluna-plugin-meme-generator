@@ -1,7 +1,7 @@
 import type { Context } from 'cordis'
 import { registerReactFormExtension } from '@chatluna/ui-schema-form/client'
 import { WeightTable } from './weight-table'
-import { TemplateListField } from './template-field'
+import { ExcludedTemplateField, TemplateListField } from './template-field'
 
 export default function apply(ctx: Context) {
   ctx.effect(() => registerReactFormExtension({
@@ -14,6 +14,12 @@ export default function apply(ctx: Context) {
     type: 'array',
     role: 'meme-generator:templates',
     component: TemplateListField,
+    priority: 30
+  }))
+  ctx.effect(() => registerReactFormExtension({
+    type: 'array',
+    role: 'meme-generator:excluded-templates',
+    component: ExcludedTemplateField,
     priority: 30
   }))
 }

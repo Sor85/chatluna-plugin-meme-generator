@@ -20,12 +20,14 @@ describe('配置与项目说明', () => {
     expect(defaultConfig.emptyTextAutoFillRules.map((rule) => rule.weight)).toEqual([100, 100])
     expect(defaultConfig.randomMemeBucketWeightRules).toHaveLength(5)
   })
-  it('只有两组权重数组使用插件专属表格角色', () => {
+  it('权重数组与模板 key 数组使用插件专属角色', () => {
     const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
     expect(fields.randomMemeBucketWeightRules.meta.role).toBe('meme-generator:weights')
     expect(fields.emptyTextAutoFillRules.meta.role).toBe('meme-generator:weights')
-    expect(fields.excludedMemeKeys.meta.role).toBe('table')
+    expect(fields.excludedMemeKeys.meta.role).toBe('meme-generator:excluded-templates')
     expect(fields.groupExcludedMemeKeys.meta.role).toBe('table')
+    expect(fields.groupExcludedMemeKeys.inner?.dict?.excludedMemeKeys.meta.role).toBe('meme-generator:excluded-templates')
+    expect(fields.promptMemeKeys.meta.role).toBe('meme-generator:templates')
   })
   it('保留宿主识别客户端构建所需的依赖声明', () => {
     const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))

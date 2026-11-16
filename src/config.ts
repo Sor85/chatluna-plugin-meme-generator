@@ -288,16 +288,16 @@ const filterSchema = Schema.object({
     .default(defaultConfig.excludeOtherMemes)
     .description("是否排除未命中现有类别排除项的其他模板"),
   excludedMemeKeys: Schema.array(Schema.string().min(1))
-    .role("table")
+    .role("meme-generator:excluded-templates")
     .default(defaultConfig.excludedMemeKeys)
-    .description("全局排除模板`key`列表"),
+    .description("全局排除模板`key`列表，可从后端模板预览中选择"),
   groupExcludedMemeKeys: Schema.array(
     Schema.object({
       groupId: Schema.string().required().description("群号"),
       excludedMemeKeys: Schema.array(Schema.string().min(1))
-        .role("table")
+        .role("meme-generator:excluded-templates")
         .default([])
-        .description("该群额外排除模板`key`列表"),
+        .description("该群额外排除模板`key`列表，可从后端模板预览中选择"),
     }),
   )
     .role("table")
