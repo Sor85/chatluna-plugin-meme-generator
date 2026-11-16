@@ -22,9 +22,9 @@ function values(description = '') {
 }
 const actionSchema = Schema.object({
   key: Schema.string().min(1).required().description('Exact template key returned by meme_search, or a known alias'),
-  text: values('Texts, as an array or separated by |'),
-  image: values('Image refs from this conversation, or public HTTP(S) URLs'),
-  at: values('User IDs for avatars, in order; separated by |'),
+  text: values('Custom texts drawn into the template, as an array or separated by |'),
+  image: values('Image refs from this conversation, or public HTTP(S) URLs, drawn into the template'),
+  at: values('User IDs whose avatars are drawn into the template, in order; separated by |'),
   texts: values(), images: values(), ats: values()
 })
 export function normalizeValues(value: string | string[] | undefined): string[] {
@@ -64,8 +64,8 @@ export function registerMemeAction(ctx: Context, config: Config, runtime: Return
   })
   const templates = config.promptMemeKeys.length ? new PromptTemplates(config, runtime.client, lifetime.signal) : undefined
   ctx.chat.action('meme', {
-    description: 'Generate and SEND a meme image. If the template key or requirements are unknown, first call meme_search with a few short keywords; select an available returned key, then use this action. text, image refs/public URLs and avatar user IDs accept | separated values. Missing inputs follow configured completion. Use multiple <meme> actions for multiple images; they execute in order within the same conversation. This action sends the image itself; do not send it again. Do not automatically retry expired or over-limit actions. Never invent template keys.',
-    locales: { zh: { description: '根据模板生成并发送表情；模板或参数未知时先通过 meme_search 查询，多个参数使用 | 分隔' } },
+    description: 'Generate and SEND a new meme image composed from a template with custom text and/or user avatars (e.g. hugging two users, patting someone\'s head, a sign holding given words). Unlike sending an existing sticker or emoji, the picture is drawn on the spot and features the chosen people or words. If the template key or requirements are unknown, first call meme_search with a few short keywords; select an available returned key, then use this action. text, image refs/public URLs and avatar user IDs accept | separated values. Missing inputs follow configured completion. Use multiple <meme> actions for multiple images; they execute in order within the same conversation. This action sends the image itself; do not send it again. Do not automatically retry expired or over-limit actions. Never invent template keys.',
+    locales: { zh: { description: '用模板把自定义文字和用户头像合成一张新的表情包图片并发送（如抱抱、摸头、举牌），区别于直接发送现成的普通表情图片；模板或参数未知时先通过 meme_search 查询，多个参数使用 | 分隔' } },
     attrs: actionSchema,
     example: '<meme key="hug" at="user-id|bot-id"/>',
     // Without preset templates there is no prompt, so the host skips the per-step dynamic block.
