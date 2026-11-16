@@ -5,9 +5,20 @@ import { describe, expect, it } from 'vitest'
 import { Config, defaultConfig } from '../src/config'
 
 describe('配置与项目说明', () => {
-  it('默认配置与八组设置一致，所有字段有中文标签', () => {
+  it('常用分组展开、低频分组默认折叠，字段归属不重复', () => {
+    const groups = (Config.list ?? []).map((group) => [group.meta.description, group.meta.collapse === true])
+    expect(groups).toEqual([
+      ['基础设置', false], ['触发方式设置', false], ['模型调用设置', false], ['模板筛选设置', false],
+      ['列表输出设置', true], ['文案与头像补全设置', true], ['随机触发设置', true],
+      ['动作排队与缓存设置', true], ['运行与错误设置', true], ['开发者模式', true]
+    ])
+    const keys = (Config.list ?? []).flatMap((group) => Object.keys(group.dict ?? {}))
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(keys.sort()).toEqual(Object.keys(defaultConfig).sort())
+  })
+  it('默认配置与十组设置一致，所有字段有中文标签', () => {
     expect(Config({})).toEqual(defaultConfig)
-    expect(Config.list).toHaveLength(8)
+    expect(Config.list).toHaveLength(10)
     for (const group of Config.list ?? []) {
       for (const field of Object.values(group.dict ?? {})) {
         expect(field.meta.label).toBeTruthy()

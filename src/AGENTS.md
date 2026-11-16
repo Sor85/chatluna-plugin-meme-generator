@@ -2,7 +2,7 @@
 
 适用范围：`src/`。同时遵守根 `AGENTS.md`；回归测试见 `tests/AGENTS.md`。
 
-- `config.ts` 使用 `@chatluna/schema`、八组设置和中文 label，`Config` 表示已补全默认值的配置；`allowKeyWithoutPrefixTrigger` 默认开启，必须保留用户显式配置的 `false`。检索仅使用本地关键词匹配，不调用模型。两组权重数组使用 `meme-generator:weights` 角色，由客户端子目录的表格扩展渲染；`promptMemeKeys` 使用 `meme-generator:templates`，全局与分群排除的 key 数组使用 `meme-generator:excluded-templates`，均由模板选择器渲染、只保存 key；分群排除外层保留 `table` 角色，因子项含数组由宿主退回堆叠列表。
+- `config.ts` 使用 `@chatluna/schema`、十组设置和中文 label；基础、触发、模型调用与模板筛选保持展开，列表输出、补全、随机、排队缓存、运行与开发者等低频调优组用 `.collapse()` 默认折叠，新增字段按使用频率归组。`Config` 表示已补全默认值的配置；`allowKeyWithoutPrefixTrigger` 默认开启，必须保留用户显式配置的 `false`。检索仅使用本地关键词匹配，不调用模型。两组权重数组使用 `meme-generator:weights` 角色，由客户端子目录的表格扩展渲染；`promptMemeKeys` 使用 `meme-generator:templates`，全局与分群排除的 key 数组使用 `meme-generator:excluded-templates`，均由模板选择器渲染、只保存 key；分群排除外层保留 `table` 角色，因子项含数组由宿主退回堆叠列表。
 - 动作能力与参数由原生工具/动作定义提供，不在配置中保留不参与执行的参考提示词字段。删除此类字段时同步移除类型、默认文本、Schema 与标签，不为旧字段增加转换或回退分支。
 - `index.ts` 可选注入 `chatluna_webui` 并注册客户端入口；没有 WebUI 时命令、后端与工具仍能独立加载。
 - `backend.ts` 封装 meme-generator Python HTTP 协议，保留重复 multipart 字段、空 args 和 key 编码；校验返回结构，限制大小并传播超时/取消。
