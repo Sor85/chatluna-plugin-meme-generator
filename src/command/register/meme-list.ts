@@ -452,7 +452,7 @@ export async function buildCategoryExcludedMemeKeySet(
   );
 }
 
-function pickChineseAlias(info: MemeInfoResponse): string {
+export function pickChineseAlias(info: MemeInfoResponse): string {
   const aliases = [
     ...info.keywords,
     ...info.shortcuts.flatMap((shortcut) =>

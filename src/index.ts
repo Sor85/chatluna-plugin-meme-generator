@@ -6,6 +6,8 @@ import { MemeBackendClient } from './backend'
 import { registerCommands } from './command/register'
 import { registerTools } from './tools'
 import { registerMemeAction } from './actions'
+import { MemeSearchIndex } from './search'
+import { registerWebUI } from './webui'
 
 export const name = 'chatluna-meme-generator'
 export { Config }
@@ -17,15 +19,11 @@ export function apply(ctx: Context, config: Config) {
   ctx.effect(() => () => lifetime.abort())
   const client = new MemeBackendClient(resolved, httpFetch(ctx.http), lifetime.signal)
   const runtime = registerCommands(ctx, resolved, client)
-  ctx.inject(['chatluna_webui'], (ctx) => {
-    ctx.chatluna_webui.addEntry({
-      baseUrl: import.meta.url,
-      source: '../client/index.ts',
-      bundle: '../dist/client.js'
-    })
-  })
+  // One metadata snapshot serves both the meme_search tool and the settings page's template picker.
+  const index = new MemeSearchIndex(resolved, client)
+  ctx.inject(['chatluna_webui'], (ctx) => registerWebUI(ctx, client, index, lifetime.signal))
   if (resolved.enableMemeXmlTool) {
     ctx.inject(['chat'], (ctx) => registerMemeAction(ctx, resolved, runtime))
-    ctx.inject(['tools', 'chat'], (ctx) => registerTools(ctx, resolved, runtime))
+    ctx.inject(['tools', 'chat'], (ctx) => registerTools(ctx, resolved, runtime, index))
   }
 }

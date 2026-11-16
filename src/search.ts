@@ -17,7 +17,7 @@ export interface SearchResult {
 }
 
 function normalize(value: string) { return value.normalize('NFKC').trim().toLowerCase() }
-function aliases(info: MemeInfoResponse): string[] {
+export function aliases(info: MemeInfoResponse): string[] {
   return [...new Set(info.shortcuts.flatMap((item) => [item.key, ...(item.humanized ? [item.humanized] : [])]))]
 }
 function keywordMatch(info: MemeInfoResponse, queries: string[]) {
@@ -43,13 +43,22 @@ export class MemeSearchIndex {
   constructor(private config: Config, private client: MemeBackendClient) {}
 
   search(input: SearchInput, allowed: (info: MemeInfoResponse) => boolean, signal: AbortSignal): Promise<SearchResult> {
+    return this.serial(() => this.query(input, allowed, signal), signal)
+  }
+
+  /** The whole cached catalog, for the WebUI template picker. */
+  catalog(signal: AbortSignal) {
+    return this.serial(() => this.load(signal), signal)
+  }
+
+  private serial<T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> {
     // Serialize refreshes; one caller's cancellation does not cancel the next.
-    const task = this.queue.then(() => this.query(input, allowed, signal))
+    const task = this.queue.then(run)
     this.queue = task.catch(() => {})
     return abortable(task, signal)
   }
 
-  private async catalog(signal: AbortSignal) {
+  private async load(signal: AbortSignal) {
     signal.throwIfAborted()
     if (this.snapshot && Date.now() < this.snapshot.expires) return this.snapshot
     const keys = [...new Set(await this.client.getKeys(signal))]
@@ -85,7 +94,7 @@ export class MemeSearchIndex {
     const queries = [...new Set(input.keywords.map(normalize).filter(Boolean))]
     if (!queries.length || queries.length > 8 || queries.some((query) => query.length > 200)) throw new Error('查询需包含 1–8 个关键词，每项不超过 200 字符')
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 10) throw new Error('结果数量需为 1–10')
-    const snapshot = await this.catalog(signal)
+    const snapshot = await this.load(signal)
     signal.throwIfAborted()
     const ranked = snapshot.infos.filter(allowed)
       .map((info) => ({ info, ...keywordMatch(info, queries) }))

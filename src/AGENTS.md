@@ -8,6 +8,8 @@
 - `backend.ts` 封装 meme-generator Python HTTP 协议，保留重复 multipart 字段、空 args 和 key 编码；校验返回结构，限制大小并传播超时/取消。
 - `command/` 保留六个命令、别名、随机、列表与分群排除语义；v2 命令桥的 `session.execute` 默认自动发送；重写命令使用 `execute(input, true)` 捕获结果后只发送一次。前置提及的中文别名通过始终存在的 `meme` 父命令解析参数以保留引号边界，再直接调用生成管线，不执行主生成命令，避免受 `enableMemeCommandTrigger` 影响；该入口仍检查全局、分群与分类排除，并遵守错误静默设置。
 - `domain/policy.ts` 与 `command/random.ts` 是迁移的纯算法。与原版的已确认差异：多段模板的昵称来源以昵称替换首段、其余沿用默认文案（奖状等首段为人名，原版对多段模板一律退回默认文案）；已有部分文字时按段位补缺额，避免默认首段错位到后面。随机桶分类不能与列表分类排除合并；历史仅存在当前插件实例内，跨会话共享；成功后才记录，子集轮回不清空全局历史。
+- `promptMemeKeys`（注入模板）只增加提示、不限制可用模板：`prompt-templates.ts` 通过 `meme` 动作的 `prompt` 钩子写入选中模板的 key、名称与图文数量；宿主的提示钩子类型是同步的，所以模板信息在注册时预取，未取到的 key 只列 key，失败后 60 秒内不重试。未选模板时不设置 `prompt`，避免宿主每步生成动态块。全局、分群（按 `env.guildId`，私聊不适用）与类别排除在生成提示时生效。
+- `webui.ts` 只在 `chatluna_webui` 存在时注册：`meme-generator.templates` 状态复用 `MemeSearchIndex` 的元数据快照（与 `meme_search` 共用一份，由 `index.ts` 创建），`meme-generator.preview` 动作把后端预览经 Takumi 缩成 96px WebP Data URL。WebUI 接口需鉴权头，`<img>` 无法直接请求，所以预览走动作而非 HTTP 路由；缩略图只在内存缓存（最多 1024 张），失败不缓存，后端请求最多并发 4 个。
 - `tools.ts` 只注册只读 `meme_search`，禁止生成、下载图片或向平台发消息。`search.ts` 缓存后端元数据，以 key、关键词、别名、标签及默认文案进行字面匹配，精确命中优先；全局、分群和分类排除在候选排序前生效，原人工命令保持不变。
 - `actions.ts` 独立注册 `meme` 动作的 `run`，不依赖公开生成工具。宿主不替自定义动作校验 Schema，因此必须显式校验 attrs；仅消费显式文字、图片和提及，再应用原补全策略。图片 ref 只从宿主 ActionContext.sessionId 对应活动 agent 的内存消息读取，不读其他会话或创建会话。错误抛回宿主；平台图像只发送一次。
 - `action-queue.ts` 以稳定平台会话隔离动作：包括平台、机器人、群/频道或私聊用户，使用结构化键避免分隔符碰撞，不使用单条消息或 agent 标识。同一会话 FIFO，不同会话受 `memeActionConcurrency` 限制（默认 4）；繁忙会话轮转，不抢占其他等待会话。排队取消立即移除，失败释放槽，运行中取消必须等实际任务退出再释放槽。

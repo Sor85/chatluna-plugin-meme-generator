@@ -173,3 +173,22 @@ export async function renderTakumiHtml(
     fetchedResources: images,
   });
 }
+
+/**
+ * 把模板预览图缩成正方形 WebP 缩略图（动图取首帧），供设置页选择器展示。
+ */
+export async function renderThumbnail(
+  data: Uint8Array,
+  size: number,
+): Promise<Buffer> {
+  const { node } = fromHtml(
+    '<img src="thumbnail" style="width:100%;height:100%;object-fit:contain">',
+  );
+  return renderer.render(node, {
+    width: size,
+    height: size,
+    format: "webp",
+    quality: 80,
+    fetchedResources: [{ src: "thumbnail", data }],
+  });
+}

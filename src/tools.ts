@@ -6,14 +6,13 @@ import type { Config } from './config'
 import type { registerCommands } from './command/register'
 import { buildExcludedMemeKeySet, buildGroupExcludedMemeKeySets, normalizeMemeKey, resolveSessionGroupId } from './command/register/exclusion'
 import { isParamsTypeExcludedByConfig } from './command/register/meme-list'
-import { MemeSearchIndex } from './search'
+import type { MemeSearchIndex } from './search'
 
 interface SearchArgs { keywords: string | string[]; limit: number }
 
-export function registerTools(ctx: Context, config: Config, runtime: ReturnType<typeof registerCommands>) {
+export function registerTools(ctx: Context, config: Config, runtime: ReturnType<typeof registerCommands>, index: MemeSearchIndex) {
   const lifetime = new AbortController()
   ctx.effect(() => () => lifetime.abort())
-  const index = new MemeSearchIndex(config, runtime.client)
   const excluded = buildExcludedMemeKeySet(config)
   const groups = buildGroupExcludedMemeKeySets(config)
   const tool: ToolDefinition<SearchArgs> = {
