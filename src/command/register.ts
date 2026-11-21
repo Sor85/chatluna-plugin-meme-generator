@@ -6,7 +6,9 @@
 import type { Context } from "cordis";
 import { h } from "@satorijs/core";
 import type {} from "koishi";
+import type {} from "chatluna-plugin-takumi";
 import type { Config } from "../config";
+import { downloadImage } from "../utils/image";
 import { MemeBackendClient } from "../backend";
 import {
   createMemeKeyResolver,
@@ -479,6 +481,9 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
         sections,
         config.memeListImageMode,
         logger,
+        ctx.get("takumi"),
+        async (url) =>
+          (await downloadImage(ctx, url, config.timeoutMs, "emoji")).data,
       );
       if (!images) return lines.join("\n");
       if (images.length > 1 && config.sendMemeListAsForward) {

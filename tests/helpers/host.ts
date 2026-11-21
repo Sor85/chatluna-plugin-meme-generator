@@ -5,6 +5,7 @@ import Database from '@cordisjs/plugin-database'
 import Http from '@cordisjs/plugin-http'
 import Permissions from '@chatluna/permission'
 import Tools from '@chatluna/tool'
+import Takumi, { Config as TakumiConfig } from 'chatluna-plugin-takumi'
 import type { ActionInput } from '@chatluna/chat'
 import { Config } from '../../src/config'
 import * as plugin from '../../src/index'
@@ -18,6 +19,7 @@ export async function host(overrides: Partial<Config> = {}) {
   await ctx.plugin(Koishi, { prefix: ['', '/'] })
   await ctx.plugin(Http)
   await ctx.plugin(Tools, {})
+  await ctx.plugin(Takumi, TakumiConfig.parse({}))
   const sent: string[] = []
   const bot = {
     ctx, platform: 'onebot', selfId: 'bot', user: { id: 'bot', name: '机器人' }, logger: ctx.logger,

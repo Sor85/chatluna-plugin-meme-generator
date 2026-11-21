@@ -9,7 +9,8 @@ import type {} from "koishi";
 import type { Config, MemeListImageMode } from "../../config";
 import { MemeBackendClient } from "../../backend";
 import type { MemeInfoResponse } from "../../types";
-import { measureTakumiLayout, renderTakumiHtml } from "../../render/takumi";
+import type Takumi from "chatluna-plugin-takumi";
+import type { MeasuredNode } from "chatluna-plugin-takumi";
 import { normalizeMemeKey, resolveSessionGroupId } from "./exclusion";
 import {
   MEME_LIST_CATEGORY_LABEL,
@@ -658,12 +659,15 @@ export function resolveMemeListImageColumns(): number {
   );
 }
 
-function buildMemeListImageDocument(body: string): string {
+function buildMemeListImageDocument(body: string, fontFamily: string): string {
   const columns = resolveMemeListImageColumns();
-  return `<!doctype html><html><head><meta charset="utf-8"/><style>body{margin:0;padding:0;background:#f5f7fb;}#list{width:${MEME_LIST_IMAGE_LAYOUT_WIDTH}px;padding:${MEME_LIST_IMAGE_PADDING}px;box-sizing:border-box;color:#0f172a;font-family:"Noto Sans SC",sans-serif;}.section{margin:0 0 ${MEME_LIST_IMAGE_SECTION_GAP}px 0;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#ffffff;}.section-title{padding:12px 16px;background:#e2e8f0;border-bottom:1px solid #cbd5e1;font-size:${MEME_LIST_IMAGE_TITLE_FONT_SIZE}px;line-height:1.4;font-weight:700;}.alias-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));}.alias-cell{padding:10px 12px;font-size:${MEME_LIST_IMAGE_ALIAS_FONT_SIZE}px;line-height:1.5;border-right:1px solid #dbe3ee;border-bottom:1px solid #dbe3ee;word-break:break-word;overflow-wrap:anywhere;background:#ffffff;}.alias-cell:nth-child(2n){background:#f8fafc;}</style></head><body><div id="list">${body}</div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"/><style>body{margin:0;padding:0;background:#f5f7fb;}#list{width:${MEME_LIST_IMAGE_LAYOUT_WIDTH}px;padding:${MEME_LIST_IMAGE_PADDING}px;box-sizing:border-box;color:#0f172a;font-family:${fontFamily},sans-serif;}.section{margin:0 0 ${MEME_LIST_IMAGE_SECTION_GAP}px 0;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#ffffff;}.section-title{padding:12px 16px;background:#e2e8f0;border-bottom:1px solid #cbd5e1;font-size:${MEME_LIST_IMAGE_TITLE_FONT_SIZE}px;line-height:1.4;font-weight:700;}.alias-grid{display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));}.alias-cell{padding:10px 12px;font-size:${MEME_LIST_IMAGE_ALIAS_FONT_SIZE}px;line-height:1.5;border-right:1px solid #dbe3ee;border-bottom:1px solid #dbe3ee;word-break:break-word;overflow-wrap:anywhere;background:#ffffff;}.alias-cell:nth-child(2n){background:#f8fafc;}</style></head><body><div id="list">${body}</div></body></html>`;
 }
 
-export function buildMemeListImageHtml(blocks: MemeListImageBlock[]): string {
+export function buildMemeListImageHtml(
+  blocks: MemeListImageBlock[],
+  fontFamily: string,
+): string {
   const body = blocks
     .map((block) => {
       const aliasCells = block.aliases
@@ -673,7 +677,7 @@ export function buildMemeListImageHtml(blocks: MemeListImageBlock[]): string {
     })
     .join("");
 
-  return buildMemeListImageDocument(body);
+  return buildMemeListImageDocument(body, fontFamily);
 }
 
 interface MemeListSectionMetrics {
@@ -691,11 +695,9 @@ interface MemeListSectionMetrics {
  */
 async function measureMemeListSection(
   section: MemeListSection,
+  measure: (blocks: MemeListImageBlock[]) => Promise<MeasuredNode>,
 ): Promise<MemeListSectionMetrics> {
-  const root = await measureTakumiLayout(
-    buildMemeListImageHtml([section]),
-    MEME_LIST_IMAGE_LAYOUT_WIDTH,
-  );
+  const root = await measure([section]);
 
   // 外层容器都只有一个子节点，向下找到由标题和网格组成的分类节点
   let sectionNode = root;
@@ -726,6 +728,7 @@ async function measureMemeListSection(
  */
 export async function paginateMemeListImageSections(
   sections: MemeListSection[],
+  measure: (blocks: MemeListImageBlock[]) => Promise<MeasuredNode>,
   maxHeight = MEME_LIST_IMAGE_PAGE_MAX_HEIGHT,
 ): Promise<MemeListImageBlock[][]> {
   const columns = resolveMemeListImageColumns();
@@ -742,7 +745,7 @@ export async function paginateMemeListImageSections(
 
   for (const section of sections) {
     const { pageBaseHeight, chromeHeight, rowHeights } =
-      await measureMemeListSection(section);
+      await measureMemeListSection(section, measure);
     let row = 0;
 
     while (row < rowHeights.length) {
@@ -787,15 +790,6 @@ export async function paginateMemeListImageSections(
   return pages;
 }
 
-async function buildMemeListImageDocuments(
-  sections: MemeListSection[],
-  mode: MemeListImageMode,
-): Promise<string[]> {
-  if (mode !== "multiple") return [buildMemeListImageHtml(sections)];
-
-  const pages = await paginateMemeListImageSections(sections);
-  return pages.map((blocks) => buildMemeListImageHtml(blocks));
-}
 
 interface MemeListImageCacheEntry {
   key: string;
@@ -807,27 +801,57 @@ let memeListImageCache: MemeListImageCacheEntry | undefined;
 
 /**
  * 把模板列表渲染成 PNG：single 合成一张长图，multiple 按页高拆成多张。
- * 渲染失败时返回 undefined，由调用方退回文本。
+ * 未启用 takumi 服务或渲染失败时返回 undefined，由调用方退回文本。
+ * fetch 下载别名中 emoji 对应的 Twemoji 图片，同一次构建内复用下载结果。
  */
 export async function buildListImages(
   sections: MemeListSection[],
   mode: MemeListImageMode,
   logger: Context["logger"],
+  takumi: Pick<Takumi, "render" | "measure" | "fontFamily"> | undefined,
+  fetch?: (url: string) => Promise<Uint8Array>,
 ): Promise<Buffer[] | undefined> {
   try {
     const cacheKey = JSON.stringify([mode, sections]);
     if (memeListImageCache?.key === cacheKey) {
       return memeListImageCache.images;
     }
+    if (!takumi) throw new Error("Takumi rendering service is not enabled");
 
-    // 高密度出图：布局宽度按 CSS 像素算，再按 deviceScaleFactor 放大出图，
+    const downloads = new Map<string, Promise<Uint8Array>>();
+    const options = {
+      emoji: "twemoji" as const,
+      fetch:
+        fetch &&
+        ((url: string) => {
+          const cached = downloads.get(url) ?? fetch(url);
+          downloads.set(url, cached);
+          return cached;
+        }),
+    };
+    const html = (blocks: MemeListImageBlock[]) =>
+      buildMemeListImageHtml(blocks, takumi.fontFamily);
+    const pages =
+      mode === "multiple"
+        ? await paginateMemeListImageSections(sections, (blocks) =>
+            takumi.measure(html(blocks), {
+              width: MEME_LIST_IMAGE_LAYOUT_WIDTH,
+              ...options,
+            }),
+          )
+        : [sections];
+
+    // 高密度出图：布局宽度按 CSS 像素算，再按 devicePixelRatio 放大出图，
     // 否则 2400px 宽的图里字号只占 0.67%，QQ 等客户端按屏幕宽度缩放后就会糊成一团。
-    const documents = await buildMemeListImageDocuments(sections, mode);
     const images: Buffer[] = [];
-    for (const html of documents) {
+    for (const blocks of pages) {
       images.push(
-        await renderTakumiHtml(html, MEME_LIST_IMAGE_LAYOUT_WIDTH, {
-          deviceScaleFactor: MEME_LIST_IMAGE_DEVICE_SCALE_FACTOR,
+        await takumi.render(html(blocks), {
+          // width 是物理像素宽度，布局宽度 = width / devicePixelRatio
+          width: MEME_LIST_IMAGE_LAYOUT_WIDTH * MEME_LIST_IMAGE_DEVICE_SCALE_FACTOR,
+          devicePixelRatio: MEME_LIST_IMAGE_DEVICE_SCALE_FACTOR,
+          format: "png",
+          ...options,
         }),
       );
     }

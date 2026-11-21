@@ -1,5 +1,6 @@
 import { h } from '@satorijs/core'
 import { Context } from 'cordis'
+import Takumi, { Config as TakumiConfig } from 'chatluna-plugin-takumi'
 import { describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../src/config'
 import { buildCategoryExcludedMemeKeySet, buildListImages, buildMemeListEntries, buildMemeListSections, formatMemeListImageMessage, searchMemeInfos, sendMemeListForwardMessage, splitMemeListMessages } from '../src/command/register/meme-list'
@@ -68,12 +69,13 @@ describe('列表、分页与转发', () => {
       }))
     } finally { await ctx.fiber.dispose() }
   })
-  it('Takumi 实际渲染中韩文字，单图及多图均为 2400 像素宽', async () => {
+  it('Takumi 服务实际渲染中韩文字，单图及多图均为 2400 像素宽', async () => {
     const ctx = new Context()
     try {
+      await ctx.plugin(Takumi, TakumiConfig.parse({}))
       const sections = [{ title: '文字与图片', aliases: Array.from({ length: 210 }, (_, index) => `模板${index} 안녕하세요`) }]
-      const single = await buildListImages(sections, 'single', ctx.logger)
-      const multiple = await buildListImages(sections, 'multiple', ctx.logger)
+      const single = await buildListImages(sections, 'single', ctx.logger, ctx.takumi)
+      const multiple = await buildListImages(sections, 'multiple', ctx.logger, ctx.takumi)
       expect(single).toHaveLength(1)
       expect(multiple?.length).toBeGreaterThan(1)
       for (const image of [...single ?? [], ...multiple ?? []]) {
@@ -81,6 +83,22 @@ describe('列表、分页与转发', () => {
         expect(image.readUInt32BE(16)).toBe(2400)
       }
       expect(multiple?.every((image) => image.readUInt32BE(20) <= 3200)).toBe(true)
+    } finally { await ctx.fiber.dispose() }
+  })
+  it('未启用 takumi 服务时返回 undefined 由调用方退回文本，emoji 只经传入的下载函数', async () => {
+    const ctx = new Context()
+    try {
+      const sections = [{ title: '表情', aliases: ['未启用服务'] }]
+      expect(await buildListImages(sections, 'single', ctx.logger, undefined)).toBeUndefined()
+      await ctx.plugin(Takumi, TakumiConfig.parse({}))
+      const requested: string[] = []
+      const images = await buildListImages([{ title: '表情', aliases: ['开心 😀'] }], 'multiple', ctx.logger, ctx.takumi, async (url) => {
+        requested.push(url)
+        throw new Error('offline')
+      })
+      expect(images).toHaveLength(1)
+      // measure 与 render 共用同一次构建的下载结果
+      expect(requested).toEqual([expect.stringMatching(/\/twemoji@[^/]+\/assets\/svg\/1f600\.svg$/)])
     } finally { await ctx.fiber.dispose() }
   })
 })

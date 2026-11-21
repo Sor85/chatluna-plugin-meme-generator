@@ -7,7 +7,7 @@ import type { MemeBackendClient } from './backend'
 import { aliases, type MemeSearchIndex } from './search'
 import { resolveRandomMemeBucket } from './command/random'
 import { pickChineseAlias } from './command/register/meme-list'
-import { renderThumbnail } from './render/takumi'
+import type {} from 'chatluna-plugin-takumi'
 
 export interface MemeTemplateOption {
   key: string
@@ -74,7 +74,11 @@ export function registerWebUI(ctx: Context, client: MemeBackendClient, index: Me
     await acquire()
     try {
       const preview = await client.getPreview(key, signal)
-      const image = await renderThumbnail(preview.buffer, THUMBNAIL_SIZE)
+      const takumi = ctx.get('takumi')
+      if (!takumi) throw new Error('Takumi rendering service is not enabled')
+      const image = await takumi.render('<img src="thumbnail" style="width:100%;height:100%;object-fit:contain">', {
+        width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE, format: 'webp', quality: 80, signal, fetch: async () => preview.buffer
+      })
       return `data:image/webp;base64,${image.toString('base64')}`
     } finally {
       release()

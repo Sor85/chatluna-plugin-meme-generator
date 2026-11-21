@@ -12,6 +12,7 @@
 - 关键词检索覆盖精确命中、多词合并、去重、结果数量、缓存刷新与取消；不依赖模型或外部检索服务。
 - 动作测试调用真实注册的 run 与 Satori 会话；文件引用的 agent 只提供隔离的内存消息，不打开真实 session store。搜索不得触发生成或平台发送。
 - 动作队列覆盖稳定会话键、同会话顺序、跨会话上限、公平轮转、取消及失败释放。HTTP 联调用可手动释放的生成屏障控制先后，不依赖睡眠时长；验证慢群不阻塞其他群、等待期间不创建执行超时。队列期限使用独立的假时钟验证过期不执行、数量上限、过期后的容量回收及已启动任务不受等待计时器影响。
+- 列表图片与模板预览加载真实 `chatluna-plugin-takumi` 服务（`tests/helpers/host.ts` 同样加载），覆盖未启用服务时的文本回退与 emoji 只经传入的下载函数。
 - 目录说明守卫检查根清单路径存在，所有子目录 AGENTS.md 都已登记。
 - 发布脚本测试在独立临时目录复制脚本，以 PATH 中的 Git/Yarn/npm CLI 替身验证流程、失败停止、包检查、版本确认与标签顺序；不得执行真实发布、提交或推送。替身中的 `yarn test` 不启动真实测试，避免发布演练的测试阶段递归调用自身。
 - `templates.test.ts` 用记录型替身提供 `chatluna_webui`（只需 addEntry/state/action），验证注入提示的格式、排除与 WebUI 状态及预览缓存；预览渲染需真实可解码图片，使用夹具的 `validPng()` 与 `setPreview`，原 `PNG` 常量的 CRC 无效，只能用于不解码的场景。`template-field.test.tsx` 覆盖注入、全局排除与分群嵌套三处选择器，部分 mock `@chatluna/ui-client/client` 的 `useLive`/`callAction`，并让 IntersectionObserver 立即可见。
