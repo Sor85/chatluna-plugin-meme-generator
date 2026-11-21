@@ -74,9 +74,7 @@ export function registerWebUI(ctx: Context, client: MemeBackendClient, index: Me
     await acquire()
     try {
       const preview = await client.getPreview(key, signal)
-      const takumi = ctx.get('takumi')
-      if (!takumi) throw new Error('Takumi rendering service is not enabled')
-      const image = await takumi.render('<img src="thumbnail" style="width:100%;height:100%;object-fit:contain">', {
+      const image = await ctx.takumi.render('<img src="thumbnail" style="width:100%;height:100%;object-fit:contain">', {
         width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE, format: 'webp', quality: 80, signal, fetch: async () => preview.buffer
       })
       return `data:image/webp;base64,${image.toString('base64')}`

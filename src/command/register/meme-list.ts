@@ -801,14 +801,14 @@ let memeListImageCache: MemeListImageCacheEntry | undefined;
 
 /**
  * 把模板列表渲染成 PNG：single 合成一张长图，multiple 按页高拆成多张。
- * 未启用 takumi 服务或渲染失败时返回 undefined，由调用方退回文本。
+ * 渲染失败时返回 undefined，由调用方退回文本。
  * fetch 下载别名中 emoji 对应的 Twemoji 图片，同一次构建内复用下载结果。
  */
 export async function buildListImages(
   sections: MemeListSection[],
   mode: MemeListImageMode,
   logger: Context["logger"],
-  takumi: Pick<Takumi, "render" | "measure" | "fontFamily"> | undefined,
+  takumi: Pick<Takumi, "render" | "measure" | "fontFamily">,
   fetch?: (url: string) => Promise<Uint8Array>,
 ): Promise<Buffer[] | undefined> {
   try {
@@ -816,7 +816,6 @@ export async function buildListImages(
     if (memeListImageCache?.key === cacheKey) {
       return memeListImageCache.images;
     }
-    if (!takumi) throw new Error("Takumi rendering service is not enabled");
 
     const downloads = new Map<string, Promise<Uint8Array>>();
     const options = {

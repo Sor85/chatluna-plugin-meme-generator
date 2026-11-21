@@ -11,7 +11,7 @@ import { registerWebUI } from './webui'
 
 export const name = 'chatluna-meme-generator'
 export { Config }
-export const inject = ['koishi', 'http']
+export const inject = ['koishi', 'http', 'takumi']
 
 export function apply(ctx: Context, config: Config) {
   const resolved = { ...defaultConfig, ...config }

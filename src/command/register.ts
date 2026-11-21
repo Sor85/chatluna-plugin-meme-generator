@@ -481,7 +481,7 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
         sections,
         config.memeListImageMode,
         logger,
-        ctx.get("takumi"),
+        ctx.takumi,
         async (url) =>
           (await downloadImage(ctx, url, config.timeoutMs, "emoji")).data,
       );

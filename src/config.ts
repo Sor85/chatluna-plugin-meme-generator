@@ -222,7 +222,7 @@ const filterSchema = Schema.object({
 const listSchema = Schema.object({
   renderMemeListAsImage: Schema.boolean()
     .default(defaultConfig.renderMemeListAsImage)
-    .description("`meme.list`是否以图片形式输出；图片由 chatluna-plugin-takumi 渲染，未启用该插件时输出文本"),
+    .description("`meme.list`是否以图片形式输出；图片由 chatluna-plugin-takumi 渲染，渲染失败时输出文本"),
   memeListImageMode: Schema.union([
     Schema.const("single").description("合成单张长图"),
     Schema.const("multiple").description("按页拆成多张图片"),

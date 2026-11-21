@@ -63,6 +63,6 @@
       "zh": "表情包生成、随机去重、头像与文字补全及原生 meme 动作",
       "en": "Meme generation, random selection, avatar/text completion and native meme actions"
     },
-    "service": { "required": ["koishi", "http"], "optional": ["tools", "chat", "agents", "chatluna_storage", "chatluna_webui", "takumi"] }
+    "service": { "required": ["koishi", "http", "takumi"], "optional": ["tools", "chat", "agents", "chatluna_storage", "chatluna_webui"] }
   }
 }

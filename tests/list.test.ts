@@ -85,11 +85,9 @@ describe('列表、分页与转发', () => {
       expect(multiple?.every((image) => image.readUInt32BE(20) <= 3200)).toBe(true)
     } finally { await ctx.fiber.dispose() }
   })
-  it('未启用 takumi 服务时返回 undefined 由调用方退回文本，emoji 只经传入的下载函数', async () => {
+  it('emoji 只经传入的下载函数，measure 与 render 共用下载结果', async () => {
     const ctx = new Context()
     try {
-      const sections = [{ title: '表情', aliases: ['未启用服务'] }]
-      expect(await buildListImages(sections, 'single', ctx.logger, undefined)).toBeUndefined()
       await ctx.plugin(Takumi, TakumiConfig.parse({}))
       const requested: string[] = []
       const images = await buildListImages([{ title: '表情', aliases: ['开心 😀'] }], 'multiple', ctx.logger, ctx.takumi, async (url) => {
