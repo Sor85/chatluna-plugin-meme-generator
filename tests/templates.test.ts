@@ -91,7 +91,11 @@ describe('设置页模板选择器数据', () => {
     const preview = actions.get('meme-generator.preview')
     if (!preview) throw new Error('缺少预览动作')
     const first = preview({ key: 'hello' })
-    expect(await first).toMatch(/^data:image\/webp;base64,/)
+    const thumbnail = await first
+    expect(thumbnail).toMatch(/^data:image\/webp;base64,/)
+    // A thumbnail that lost its image is a blank WebP; render one to compare against.
+    const blank = await app.ctx.takumi.render({ type: 'container', style: { width: 96, height: 96 } }, { width: 96, height: 96, format: 'webp', quality: 80 })
+    expect(Buffer.from(thumbnail.split(',')[1]!, 'base64').equals(blank)).toBe(false)
     expect(preview({ key: 'hello' })).toBe(first)
     const missing = preview({ key: 'missing' })
     await expect(missing).rejects.toThrow()
