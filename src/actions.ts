@@ -62,7 +62,7 @@ export function registerMemeAction(ctx: Context, config: Config, runtime: Return
     maxWaitMs: config.memeActionQueueTimeoutSeconds * 1000,
     maxPendingPerConversation: config.memeActionQueueLimit
   })
-  const templates = config.promptMemeKeys.length ? new PromptTemplates(config, runtime.client, lifetime.signal) : undefined
+  const templates = config.promptMemeKeys.length ? new PromptTemplates(runtime.settings, runtime.client, lifetime.signal) : undefined
   ctx.chat.action('meme', {
     description: 'Generate and SEND a new meme image composed from a template with custom text and/or user avatars (e.g. hugging two users, patting someone\'s head, a sign holding given words). Unlike sending an existing sticker or emoji, the picture is drawn on the spot and features the chosen people or words. If the template key or requirements are unknown, first call meme_search with a few short keywords; select an available returned key, then use this action. text, image refs/public URLs and avatar user IDs accept | separated values. Missing inputs follow configured completion. Use multiple <meme> actions for multiple images; they execute in order within the same conversation. This action sends the image itself; do not send it again. Do not automatically retry expired or over-limit actions. Never invent template keys.',
     locales: { zh: { description: '用模板把自定义文字和用户头像合成一张新的表情包图片并发送（如抱抱、摸头、举牌），区别于直接发送现成的普通表情图片；模板或参数未知时先通过 meme_search 查询，多个参数使用 | 分隔' } },
@@ -85,10 +85,11 @@ export function registerMemeAction(ctx: Context, config: Config, runtime: Return
         const signal = AbortSignal.any([cancellation, AbortSignal.timeout(config.timeoutMs * 10)])
         signal.throwIfAborted()
         const args = parsed.data
+        const settings = runtime.settings.of(session)
         const key = await abortable(runtime.resolveMemeKey(args.key), signal)
-        if (runtime.isExcludedMemeKey(key, session)) throw new Error('该模板已被排除。')
+        if (runtime.isExcludedMemeKey(key, settings)) throw new Error('该模板已被排除。')
         const info = await runtime.client.getInfo(key, signal)
-        if (isParamsTypeExcludedByConfig(info.params_type, config)) throw new Error('该模板类别已被排除。')
+        if (isParamsTypeExcludedByConfig(info.params_type, settings)) throw new Error('该模板类别已被排除。')
         const texts = normalizeValues(args.text ?? args.texts)
         const inputs: GenerateImageInput[] = []
         for (const image of normalizeValues(args.image ?? args.images)) inputs.push(await inputImage(ctx, image, messages, config, signal))
@@ -100,10 +101,10 @@ export function registerMemeAction(ctx: Context, config: Config, runtime: Return
           if (avatar) mentionedAvatars.push(avatar)
         }
         const senderName = await abortable(resolveSenderDisplayName(session), signal)
-        const groupNicknameText = config.autoUseGroupNicknameWhenNoDefaultText
+        const groupNicknameText = settings.autoUseGroupNicknameWhenNoDefaultText
           ? (mentions[0] ? await abortable(resolveDisplayNameByUserId(session, mentions[0]), signal) : undefined) || senderName : undefined
         const input = applyAutoFillPolicy({
-          texts, images: inputs, params: info.params_type, config,
+          texts, images: inputs, params: info.params_type, config: settings,
           senderAvatarImage: await abortable(getSenderAvatarImage(ctx, session, config.timeoutMs), signal),
           mentionedAvatarImages: mentionedAvatars,
           botAvatarImage: await abortable(getBotAvatarImage(ctx, session, config.timeoutMs), signal), senderName, groupNicknameText

@@ -6,7 +6,7 @@
 - 纯算法回归可保留源插件的用例；集成测试必须使用 v2 的真实 Cordis / Koishi 桥和工具服务，不能用旧 Context 的行为替代宿主验证。
 - 后端协议使用本地模拟 HTTP 服务验证真实请求与响应，不访问真实群聊、真实表情库或公网服务。
 - 临时目录、模拟服务器、插件 fiber 与计时器在结束时释放；不修改用户数据。
-- 覆盖补全矩阵、随机权重与共享去重、分群排除、命令前置提及、只读模板搜索、独立 XML 动作发送、输入验证和下载限制。
+- 覆盖补全矩阵、随机权重与共享去重、按会话排除、命令前置提及、只读模板搜索、独立 XML 动作发送、输入验证和下载限制。
 - 配置与平台数据只验证当前契约：旧兼容字段不出现在 Schema 和默认值中；提及、昵称与图片使用 Satori 标准字段和序列化，覆盖旧字段不被读取，不维护旧格式可用性测试。
 - 命令回归穷举主命令、中文别名、前置提及、key 直触发与贴合参数的五开关组合；前置提及别名须保持排除、静默错误与单次发送，主命令开启或关闭时均保留中英文引号内文案的参数边界。主命令的提及只影响头像选择，不进入 `texts`，并保留引号参数和普通 `@` 文本。
 - 关键词检索覆盖精确命中、多词合并、去重、结果数量、缓存刷新与取消；不依赖模型或外部检索服务。
@@ -15,5 +15,7 @@
 - 列表图片与模板预览加载真实 `chatluna-plugin-takumi` 服务（`tests/helpers/host.ts` 同样加载），覆盖 emoji 只经传入的下载函数。
 - 目录说明守卫检查根清单路径存在，所有子目录 AGENTS.md 都已登记。
 - 发布脚本测试在独立临时目录复制脚本，以 PATH 中的 Git/Yarn/npm CLI 替身验证流程、失败停止、包检查、版本确认与标签顺序；不得执行真实发布、提交或推送。替身中的 `yarn test` 不启动真实测试，避免发布演练的测试阶段递归调用自身。
-- `templates.test.ts` 用记录型替身提供 `chatluna_webui`（只需 addEntry/state/action），验证注入提示的格式、排除与 WebUI 状态及预览缓存；预览渲染需真实可解码图片，使用夹具的 `validPng()` 与 `setPreview`，原 `PNG` 常量的 CRC 无效，只能用于不解码的场景。`template-field.test.tsx` 覆盖注入、全局排除与分群嵌套三处选择器，部分 mock `@chatluna/ui-client/client` 的 `useLive`/`callAction`，并让 IntersectionObserver 立即可见。
+- `templates.test.ts` 用记录型替身提供 `chatluna_webui`（只需 addEntry/state/action），验证注入提示的格式、排除与 WebUI 状态及预览缓存；预览渲染需真实可解码图片，使用夹具的 `validPng()` 与 `setPreview`，原 `PNG` 常量的 CRC 无效，只能用于不解码的场景。`template-field.test.tsx` 覆盖注入（插件配置）与排除（会话级 Schema）两处选择器，部分 mock `@chatluna/ui-client/client` 的 `useLive`/`callAction`，并让 IntersectionObserver 立即可见。
+- `routing.test.ts` 通过 `host(config, { rules })` 加载真实 `@chatluna/routing` 与 `@chatluna/ui-schema-registry`，验证命名空间注册与卸载、旧取值作为默认值、群规则覆盖全局、旧分群排除仅在规则未设置时生效、无前缀别名按群开启。其余测试不传 `rules`，走无路由服务时只读插件配置的路径。
+- 配置测试同时检查插件配置可见分组、会话级分组与隐藏旧字段：三者字段不重叠且合起来覆盖 `defaultConfig`。
 - `weight-table.test.tsx` 在 jsdom 内挂载真实 SchemaForm / ui-kit，验证权重编辑、开关、排序、增删、默认值与扩展释放；DOM 测试不等于浏览器视觉验收，不修改运行实例配置。

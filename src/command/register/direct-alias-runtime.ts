@@ -91,10 +91,6 @@ function escapeRegExp(source: string): string {
   return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function createStrictDirectAliasPattern(alias: string): RegExp {
-  return new RegExp(`^${escapeRegExp(alias)}(?:\\s+[\\s\\S]*)?$`);
-}
-
 function createMergedDirectAliasPattern(alias: string): RegExp {
   return new RegExp(`^${escapeRegExp(alias)}[\\s\\S]*$`);
 }
@@ -120,15 +116,16 @@ export function resolveFirstDirectAlias(
 
 interface InstallDirectAliasRuntimeOptions {
   ctx: Context;
+  /** Process-level fields: retries, fetch concurrency and debug logging. */
   config: Config;
+  settingsOf: (session?: Session) => Config;
   client: MemeBackendClient;
   logger: Context["logger"];
-  ensureCategoryExcludedMemeKeySet: () => Promise<void>;
-  notifyInitializedSummary: (count: number) => void;
-  isGloballyExcludedMemeKey: (key: string) => boolean;
-  isSessionExcludedMemeKey: (key: string, session: Session) => boolean;
+  ensureCategoryExcludedMemeKeySet: (current: Config) => Promise<void>;
+  isExcludedMemeKey: (key: string, current: Config) => boolean;
   handleGenerate: (
     session: Session,
+    current: Config,
     key: string,
     texts: string[],
   ) => Promise<string | ReturnType<typeof h.image>>;
@@ -140,12 +137,11 @@ export function installDirectAliasRuntime(
   const {
     ctx,
     config,
+    settingsOf,
     client,
     logger,
     ensureCategoryExcludedMemeKeySet,
-    notifyInitializedSummary,
-    isGloballyExcludedMemeKey,
-    isSessionExcludedMemeKey,
+    isExcludedMemeKey,
     handleGenerate,
   } = options;
 
@@ -158,34 +154,28 @@ export function installDirectAliasRuntime(
   let aliasRetryDisposed = false;
 
   const maxAliasRetryAttempts = config.initLoadRetryTimes;
-  const replyOrSilent = (message: string): string => {
-    if (!config.disableErrorReplyToPlatform) return message;
-    logger.warn("direct-alias skipped reply: %s", message);
-    return "";
-  };
+  let initializedNotified = false;
 
   const registerDirectAliases = async (): Promise<boolean> => {
     if (aliasRetryDisposed) return true;
+    // Both alias kinds register; the conversation's switches decide per message which of them trigger.
     const result = await listDirectAliases(client, {
       infoFetchConcurrency: config.infoFetchConcurrency,
-      enableDirectAliasWithoutPrefix: config.enableDirectAliasWithoutPrefix,
-      allowKeyWithoutPrefixTrigger: config.allowKeyWithoutPrefixTrigger,
+      enableDirectAliasWithoutPrefix: true,
+      allowKeyWithoutPrefixTrigger: true,
     });
-    await ensureCategoryExcludedMemeKeySet();
+    // Preloads category params when the rules matching everywhere exclude a category.
+    await ensureCategoryExcludedMemeKeySet(settingsOf());
     if (aliasRetryDisposed) return true;
-    notifyInitializedSummary(result.totalKeys);
+    if (!initializedNotified) {
+      initializedNotified = true;
+      logger.info("Loaded %d memes", result.totalKeys);
+    }
     let registeredCount = 0;
     let updatedCount = 0;
     let removedCount = 0;
 
-    const filteredEntries = result.entries
-      .map((entry) => ({
-        ...entry,
-        keys: entry.keys.filter((key) => !isGloballyExcludedMemeKey(key)),
-      }))
-      .filter((entry) => entry.keys.length > 0);
-
-    const sortedEntries = [...filteredEntries].sort(
+    const sortedEntries = [...result.entries].sort(
       (left, right) => right.alias.length - left.alias.length,
     );
     const activeAliases = new Set<string>();
@@ -238,18 +228,35 @@ export function installDirectAliasRuntime(
         registeredCount += 1;
       }
 
-      const allowMergedSuffix = config.allowMentionPrefixDirectAliasTrigger;
-      const directAliasPattern = allowMergedSuffix
-        ? createMergedDirectAliasPattern(entry.alias)
-        : createStrictDirectAliasPattern(entry.alias);
+      // The merged pattern accepts everything the strict one does; the filter applies the conversation's choice.
+      const directAliasPattern = createMergedDirectAliasPattern(entry.alias);
+      const isKeyAlias = entry.isKeyAlias === true;
+      const textsOf = (session: Session, current: Config) =>
+        extractDirectAliasTexts(
+          session,
+          entry.alias,
+          current.allowMentionPrefixDirectAliasTrigger,
+          current.allowLeadingAtBeforeCommand,
+        );
 
-      const matcherContext = ctx.intersect((session: Session) =>
-        extractDirectAliasTexts(session, entry.alias, allowMergedSuffix, config.allowLeadingAtBeforeCommand) !== undefined,
-      );
+      // A conversation that turned this alias kind off, or excludes all its templates, keeps the message for normal chat.
+      const matcherContext = ctx.intersect((session: Session) => {
+        if (!session.stripped?.content?.trim().startsWith(entry.alias)) return false;
+        const current = settingsOf(session);
+        const enabled = isKeyAlias
+          ? current.allowKeyWithoutPrefixTrigger
+          : current.enableDirectAliasWithoutPrefix;
+        return (
+          enabled &&
+          textsOf(session, current) !== undefined &&
+          aliasKeys.some((key) => !isExcludedMemeKey(key, current))
+        );
+      });
 
       const disposeMatch = matcherContext.$processor.match(
         directAliasPattern,
         async (session: Session) => {
+          const current = settingsOf(session);
           if (config.enableDeveloperDebugLog) {
             logger.info(
               "direct-alias debug: alias=%s stripped=%s atSelf=%s hasAt=%s appel=%s allowLeadingAt=%s",
@@ -258,16 +265,11 @@ export function installDirectAliasRuntime(
               String(Boolean(session.stripped?.atSelf)),
               String(Boolean(session.stripped?.hasAt)),
               String(Boolean(session.stripped?.appel)),
-              String(config.allowLeadingAtBeforeCommand),
+              String(current.allowLeadingAtBeforeCommand),
             );
           }
 
-          const directAliasTexts = extractDirectAliasTexts(
-            session,
-            entry.alias,
-            allowMergedSuffix,
-            config.allowLeadingAtBeforeCommand,
-          );
+          const directAliasTexts = textsOf(session, current);
           if (!directAliasTexts) {
             if (config.enableDeveloperDebugLog) {
               logger.info(
@@ -278,11 +280,14 @@ export function installDirectAliasRuntime(
             return "";
           }
 
+          await ensureCategoryExcludedMemeKeySet(current);
           const availableAliasKeys = aliasKeys.filter(
-            (key) => !isSessionExcludedMemeKey(key, session),
+            (key) => !isExcludedMemeKey(key, current),
           );
           if (availableAliasKeys.length === 0) {
-            return replyOrSilent("该模板已被排除。");
+            if (!current.disableErrorReplyToPlatform) return "该模板已被排除。";
+            logger.warn("direct-alias skipped reply: %s", "该模板已被排除。");
+            return "";
           }
 
           const pickedKey =
@@ -302,7 +307,7 @@ export function installDirectAliasRuntime(
           }
 
           return (
-            (await handleGenerate(session, pickedKey, directAliasTexts)) ?? ""
+            (await handleGenerate(session, current, pickedKey, directAliasTexts)) ?? ""
           );
         },
         {

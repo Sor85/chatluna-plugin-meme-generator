@@ -3,8 +3,6 @@
  * 提供 key 级别的归一化与排除能力
  */
 
-import type { Config } from "../../config";
-
 export function normalizeMemeKey(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -109,34 +107,6 @@ export function resolveSessionGroupId(session: unknown): string {
   }
 
   return "";
-}
-
-export function buildExcludedMemeKeySet(config: Config): Set<string> {
-  return new Set(
-    config.excludedMemeKeys
-      .map((key) => normalizeMemeKey(key))
-      .filter((key) => key.length > 0),
-  );
-}
-
-export function buildGroupExcludedMemeKeySets(
-  config: Config,
-): Map<string, Set<string>> {
-  const groupExcludedSets = new Map<string, Set<string>>();
-
-  for (const rule of config.groupExcludedMemeKeys) {
-    const groupId = normalizeGroupId(rule.groupId);
-    if (!groupId) continue;
-
-    const excludedSet = groupExcludedSets.get(groupId) ?? new Set<string>();
-    for (const key of rule.excludedMemeKeys) {
-      const normalizedKey = normalizeMemeKey(key);
-      if (normalizedKey) excludedSet.add(normalizedKey);
-    }
-    groupExcludedSets.set(groupId, excludedSet);
-  }
-
-  return groupExcludedSets;
 }
 
 export function isExcludedMemeKey(

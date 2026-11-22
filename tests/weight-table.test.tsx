@@ -7,7 +7,7 @@ import { SchemaForm, extensionOf, registerReactFormExtension } from '@chatluna/u
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import apply from '../client'
 import { WeightTable } from '../client/weight-table'
-import { Config, defaultConfig } from '../src/config'
+import { defaultConfig, pickRouteSettings, routeSchema } from '../src/config'
 
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
 // jsdom has no layout engine; popup observers can mount without measuring pixels.
@@ -22,7 +22,9 @@ let dispose: (() => void) | undefined
 let container: HTMLDivElement
 const rulesKey = 'randomMemeBucketWeightRules'
 const textKey = 'emptyTextAutoFillRules'
-const fields: Record<string, Schema> = Object.assign({}, ...(Config.list ?? []).map((group) => group.dict))
+// Both weight arrays are conversation-level fields rendered under 对话设置.
+const Route = routeSchema(pickRouteSettings(defaultConfig))
+const fields: Record<string, Schema> = Object.assign({}, ...(Route.list ?? []).map((group) => group.dict))
 const schema = Schema.object({ [rulesKey]: fields[rulesKey], [textKey]: fields[textKey] })
 
 afterEach(async () => {
@@ -110,7 +112,7 @@ describe('权重表格', () => {
     await click(button('减少'))
     expect(current()[rulesKey]).toEqual([{ category: 'other', enabled: true, weight: 0 }])
     await input(0, '-1')
-    expect(() => Config(current())).toThrow()
+    expect(() => Route(current())).toThrow()
   })
 
   it('上下移动保持重复类别和各行权重，丢弃数字控件的旧草稿', async () => {
@@ -140,7 +142,7 @@ describe('权重表格', () => {
     if (!add) throw new Error('缺少添加按钮')
     await click(add)
     expect(current()[rulesKey]).toEqual([{ category: 'text-only', enabled: true, weight: 100 }])
-    expect(Config(current()).randomMemeBucketWeightRules).toHaveLength(1)
+    expect(Route(current()).randomMemeBucketWeightRules).toHaveLength(1)
   })
 
   it('保存后的值重新打开仍保持原有权重、顺序和开关', async () => {

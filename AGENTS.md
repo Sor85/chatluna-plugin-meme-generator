@@ -24,7 +24,7 @@ ChatLuna v2 表情包生成插件，迁移自 `koishi-plugin-chatluna-meme-gener
 
 - 使用 Cordis 4 生命周期、`@chatluna/schema` 与 v2 原生工具/动作 API，不引入旧 ChatLuna、LangChain、Zod 或旧 XML 临时消息钩子。
 - v2 本身通过 Koishi 桥提供平台命令；可使用其类型增强和宿主的 `ctx.command`、`ctx.$processor`。上下文来自 Cordis，平台消息使用 Satori，不创建第二个 Koishi 实例。
-- 配置由宿主 ui-kit / SchemaForm 渲染，不另建设置页面或复制旧 Vue 浮动导航；权重数组的客户端扩展约定见客户端子目录说明。
+- 配置由宿主 ui-kit / SchemaForm 渲染，不另建设置页面或复制旧 Vue 浮动导航；权重数组的客户端扩展约定见客户端子目录说明。只影响单个对话的字段放在对话设置（路由命名空间 `meme-generator`），进程级字段留在插件配置，归类与旧值兼容见 src 子目录说明。
 - 注册与资源释放绑定当前插件上下文；后端生命周期取消与工具调用取消必须传递至 HTTP 请求。
 - 新增或改变约定时同步维护所属目录说明。
 

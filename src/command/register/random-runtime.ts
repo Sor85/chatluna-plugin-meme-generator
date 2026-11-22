@@ -25,30 +25,24 @@ import {
   getSenderAvatarImage,
   resolveSenderDisplayName,
 } from "../../utils/avatar";
-import { buildRandomConfig, type PreparedAvatarImage } from "./generate";
+import {
+  buildRandomConfig,
+  handleGenerateWithPreparedInput,
+} from "./generate";
 import { mapRuntimeErrorMessage, replyOrSilent } from "./errors";
 import { resolveFirstDirectAlias } from "./direct-alias-runtime";
 
 interface InstallRandomRuntimeOptions {
   ctx: Context;
+  /** Process-level fields: `randomOutputMemeKey` and request timeouts. */
   config: Config;
+  settingsOf: (session: Session) => Config;
   client: MemeBackendClient;
   logger: Context["logger"];
-  ensureCategoryExcludedMemeKeySet: () => Promise<void>;
-  filterExcludedMemeKeys: (keys: string[], session: Session) => string[];
-  handleGenerateWithPreparedInput: (
-    key: string,
-    texts: string[],
-    images: Awaited<ReturnType<typeof parseCommandInput>>["images"],
-    senderAvatarImage?: PreparedAvatarImage,
-    mentionedAvatarImages?: PreparedAvatarImage[],
-    botAvatarImage?: PreparedAvatarImage,
-    senderName?: string,
-    groupNicknameText?: string,
-    preferredTextSource?: "template-default" | "user-nickname",
-  ) => Promise<ReturnType<typeof h.image>>;
-  handleErrorReply: (scope: string, message: string) => string;
-  handleRuntimeError: (scope: string, error: unknown) => string;
+  ensureCategoryExcludedMemeKeySet: (current: Config) => Promise<void>;
+  filterExcludedMemeKeys: (keys: string[], current: Config) => string[];
+  handleErrorReply: (current: Config, scope: string, message: string) => string;
+  handleRuntimeError: (current: Config, scope: string, error: unknown) => string;
 }
 
 export function installRandomRuntime(
@@ -56,12 +50,11 @@ export function installRandomRuntime(
 ): void {
   const {
     ctx,
-    config,
+    settingsOf,
     client,
     logger,
     ensureCategoryExcludedMemeKeySet,
     filterExcludedMemeKeys,
-    handleGenerateWithPreparedInput,
     handleErrorReply,
     handleRuntimeError,
   } = options;
@@ -90,8 +83,9 @@ export function installRandomRuntime(
     session: Session,
     texts: string[],
   ): Promise<string | ReturnType<typeof h.image>> => {
+    const config = settingsOf(session);
     try {
-      await ensureCategoryExcludedMemeKeySet();
+      await ensureCategoryExcludedMemeKeySet(config);
       const executeRandom = async () => {
         const requestedRandomKey = config.randomOutputMemeKey.trim();
         // 开发者模式用于复现单个模板问题，非空时直接绕过随机候选列表。
@@ -99,7 +93,7 @@ export function installRandomRuntime(
           ? [requestedRandomKey]
           : filterExcludedMemeKeys(
               createShuffledKeys(await client.getKeys()),
-              session,
+              config,
             );
         if (filteredShuffledKeys.length === 0) {
           return replyOrSilent(
@@ -232,6 +226,8 @@ export function installRandomRuntime(
           try {
             logger.info("meme trigger key: %s", randomCandidate.key);
             const result = await handleGenerateWithPreparedInput(
+              client,
+              randomConfig,
               randomCandidate.key,
               parsedInput.texts,
               parsedInput.images,
@@ -276,6 +272,7 @@ export function installRandomRuntime(
         if (candidatesForPick.length === 0) {
           if (infoFailedCount === filteredShuffledKeys.length) {
             return handleErrorReply(
+              config,
               "meme.random",
               "随机筛选失败：后端不可用或超时，请稍后重试。",
             );
@@ -307,7 +304,7 @@ export function installRandomRuntime(
 
       return await withRandomSelectionLock(executeRandom);
     } catch (error) {
-      return handleRuntimeError("meme.random", error);
+      return handleRuntimeError(config, "meme.random", error);
     }
   };
 
@@ -317,7 +314,7 @@ export function installRandomRuntime(
     })
     .action(async ({ session }, ...texts) => {
       if (!session)
-        return handleErrorReply("meme.random", "当前上下文不可用。");
+        return handleErrorReply(options.config, "meme.random", "当前上下文不可用。");
       return await runRandomMeme(session, texts);
     });
 }

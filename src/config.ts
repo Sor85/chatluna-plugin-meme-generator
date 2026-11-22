@@ -138,6 +138,25 @@ export const defaultConfig: Config = {
   showMemeListKey: false,
 };
 
+/** 只影响单个对话行为的字段，由对话设置按会话覆盖；其余字段属于进程级插件配置。 */
+export const ROUTE_KEYS = [
+  "enableMemeCommandTrigger", "enableDirectAliasWithoutPrefix", "allowKeyWithoutPrefixTrigger",
+  "allowMentionPrefixDirectAliasTrigger", "allowLeadingAtBeforeCommand", "enableQuotedImageTrigger", "enableQuotedTextTrigger",
+  "excludedMemeKeys", "excludeTextOnlyMemes", "excludeSingleImageOnlyMemes", "excludeTwoImageOnlyMemes",
+  "excludeImageAndTextMemes", "excludeOtherMemes",
+  "renderMemeListAsImage", "memeListImageMode", "sendMemeListAsForward", "sendMemeSearchAsForward", "showMemeListKey",
+  "emptyTextAutoFillRules", "autoUseGroupNicknameWhenNoDefaultText", "autoUseAvatarWhenMinImagesOneAndNoImage",
+  "autoFillOneMissingImageWithAvatar", "autoFillSenderAndBotAvatarsWhenMinImagesTwoAndNoImage",
+  "enableRandomDedupeWithinHours", "randomDedupeWindowHours", "enableRandomKeywordNotice", "randomMemeBucketWeightRules",
+  "disableErrorReplyToPlatform",
+] as const satisfies readonly (keyof Config)[];
+
+export type RouteSettings = Pick<Config, (typeof ROUTE_KEYS)[number]>;
+
+export function pickRouteSettings(config: Config): RouteSettings {
+  return Object.fromEntries(ROUTE_KEYS.map((key) => [key, structuredClone(config[key])])) as RouteSettings;
+}
+
 // 常用分组保持展开；低频与调优项默认折叠，展开状态由宿主按浏览器记住。
 const basicSchema = Schema.object({
   baseUrl: Schema.string()
@@ -151,30 +170,6 @@ const basicSchema = Schema.object({
     .description("请求超时时间（毫秒）"),
 }).description("基础设置");
 
-const triggerSchema = Schema.object({
-  enableMemeCommandTrigger: Schema.boolean()
-    .default(defaultConfig.enableMemeCommandTrigger)
-    .description("是否允许通过`meme key`或`meme 中文别名`生成 meme"),
-  enableDirectAliasWithoutPrefix: Schema.boolean()
-    .default(defaultConfig.enableDirectAliasWithoutPrefix)
-    .description("是否允许中文别名跳过 meme 前缀直接触发"),
-  allowKeyWithoutPrefixTrigger: Schema.boolean()
-    .default(defaultConfig.allowKeyWithoutPrefixTrigger)
-    .description("是否允许`key`跳过 meme 前缀直接触发"),
-  allowMentionPrefixDirectAliasTrigger: Schema.boolean()
-    .default(defaultConfig.allowMentionPrefixDirectAliasTrigger)
-    .description("是否允许贴合参数触发，支持`meme key/中文别名@用户文本`，无前缀触发范围取决于已开启的中文别名或 key 直触发设置"),
-  allowLeadingAtBeforeCommand: Schema.boolean()
-    .default(defaultConfig.allowLeadingAtBeforeCommand)
-    .description("是否允许前置 @ 参数触发，如`@用户 meme key/中文别名`"),
-  enableQuotedImageTrigger: Schema.boolean()
-    .default(defaultConfig.enableQuotedImageTrigger)
-    .description("是否允许引用消息中的图片参与触发"),
-  enableQuotedTextTrigger: Schema.boolean()
-    .default(defaultConfig.enableQuotedTextTrigger)
-    .description("是否在未提供文本参数时使用引用消息文字触发"),
-}).description("触发方式设置");
-
 const modelSchema = Schema.object({
   enableMemeXmlTool: Schema.boolean()
     .default(defaultConfig.enableMemeXmlTool)
@@ -182,134 +177,8 @@ const modelSchema = Schema.object({
   promptMemeKeys: Schema.array(Schema.string().min(1))
     .role("meme-generator:templates")
     .default(defaultConfig.promptMemeKeys)
-    .description("选中的模板连同名称与图文数量写入`meme`动作提示，模型无需先查询即可直接使用；未选中的模板仍可通过`meme_search`查找。排除规则同样生效"),
+    .description("选中的模板连同名称与图文数量写入`meme`动作提示，模型无需先查询即可直接使用；未选中的模板仍可通过`meme_search`查找。当前会话的排除规则同样生效"),
 }).description("模型调用设置");
-
-const filterSchema = Schema.object({
-  excludedMemeKeys: Schema.array(Schema.string().min(1))
-    .role("meme-generator:excluded-templates")
-    .default(defaultConfig.excludedMemeKeys)
-    .description("全局排除模板`key`列表，可从后端模板预览中选择"),
-  groupExcludedMemeKeys: Schema.array(
-    Schema.object({
-      groupId: Schema.string().required().description("群号"),
-      excludedMemeKeys: Schema.array(Schema.string().min(1))
-        .role("meme-generator:excluded-templates")
-        .default([])
-        .description("该群额外排除模板`key`列表，可从后端模板预览中选择"),
-    }),
-  )
-    .role("table")
-    .default(defaultConfig.groupExcludedMemeKeys)
-    .description("分群排除模板`key`列表"),
-  excludeTextOnlyMemes: Schema.boolean()
-    .default(defaultConfig.excludeTextOnlyMemes)
-    .description("是否排除仅需文字的模板"),
-  excludeSingleImageOnlyMemes: Schema.boolean()
-    .default(defaultConfig.excludeSingleImageOnlyMemes)
-    .description("是否排除仅需 1 张图片的模板"),
-  excludeTwoImageOnlyMemes: Schema.boolean()
-    .default(defaultConfig.excludeTwoImageOnlyMemes)
-    .description("是否排除需 2 张图片的模板"),
-  excludeImageAndTextMemes: Schema.boolean()
-    .default(defaultConfig.excludeImageAndTextMemes)
-    .description("是否排除需图片+文字的模板"),
-  excludeOtherMemes: Schema.boolean()
-    .default(defaultConfig.excludeOtherMemes)
-    .description("是否排除未命中现有类别排除项的其他模板"),
-}).description("模板筛选设置");
-
-const listSchema = Schema.object({
-  renderMemeListAsImage: Schema.boolean()
-    .default(defaultConfig.renderMemeListAsImage)
-    .description("`meme.list`是否以图片形式输出；图片由 chatluna-plugin-takumi 渲染，渲染失败时输出文本"),
-  memeListImageMode: Schema.union([
-    Schema.const("single").description("合成单张长图"),
-    Schema.const("multiple").description("按页拆成多张图片"),
-  ])
-    .default(defaultConfig.memeListImageMode)
-    .description("`meme.list`图片模式"),
-  sendMemeListAsForward: Schema.boolean()
-    .default(defaultConfig.sendMemeListAsForward)
-    .description("`meme.list`是否以 OneBot 合并转发发送"),
-  sendMemeSearchAsForward: Schema.boolean()
-    .default(defaultConfig.sendMemeSearchAsForward)
-    .description("`meme.search`是否以 OneBot 合并转发发送"),
-  showMemeListKey: Schema.boolean()
-    .default(defaultConfig.showMemeListKey)
-    .description("`meme.list`是否显示模板 key"),
-}).description("列表输出设置").collapse();
-
-const completionSchema = Schema.object({
-  emptyTextAutoFillRules: Schema.array(
-    Schema.object({
-      source: Schema.union([
-        Schema.const("template-default").description("模板默认文字"),
-        Schema.const("user-nickname").description("用户昵称"),
-      ]).required(),
-      enabled: Schema.boolean().default(true).description("是否启用"),
-      weight: Schema.number()
-        .min(0)
-        .max(1000)
-        .step(1)
-        .default(100)
-        .description("权重（双开来源时用于随机分配）"),
-    }),
-  )
-    .role("meme-generator:weights")
-    .default(defaultConfig.emptyTextAutoFillRules)
-    .description("未提供文本时的自动补全文案来源"),
-  autoUseGroupNicknameWhenNoDefaultText: Schema.boolean()
-    .default(defaultConfig.autoUseGroupNicknameWhenNoDefaultText)
-    .description("模板无默认文字时是否优先使用群昵称补文案"),
-  autoUseAvatarWhenMinImagesOneAndNoImage: Schema.boolean()
-    .default(defaultConfig.autoUseAvatarWhenMinImagesOneAndNoImage)
-    .description("最少需 1 图且无图时自动补发送者头像"),
-  autoFillOneMissingImageWithAvatar: Schema.boolean()
-    .default(defaultConfig.autoFillOneMissingImageWithAvatar)
-    .description("已提供图片且仅差 1 图时自动补发送者头像"),
-  autoFillSenderAndBotAvatarsWhenMinImagesTwoAndNoImage: Schema.boolean()
-    .default(
-      defaultConfig.autoFillSenderAndBotAvatarsWhenMinImagesTwoAndNoImage,
-    )
-    .description("最少需 2 图且无图时自动补发送者与`bot`头像"),
-}).description("文案与头像补全设置").collapse();
-
-const randomSchema = Schema.object({
-  enableRandomDedupeWithinHours: Schema.boolean()
-    .default(defaultConfig.enableRandomDedupeWithinHours)
-    .description("是否开启`meme.random`时间窗口去重"),
-  randomDedupeWindowHours: Schema.number()
-    .min(1)
-    .max(720)
-    .step(1)
-    .default(defaultConfig.randomDedupeWindowHours)
-    .description("`meme.random`去重时间窗口（小时）"),
-  enableRandomKeywordNotice: Schema.boolean()
-    .default(defaultConfig.enableRandomKeywordNotice)
-    .description("`meme.random`是否附带模板关键词提示"),
-  randomMemeBucketWeightRules: Schema.array(
-    Schema.object({
-      category: Schema.union([
-        Schema.const("text-only").description("仅需文字"),
-        Schema.const("single-image-only").description("仅需 1 张图片"),
-        Schema.const("two-image-only").description("需 2 张图片"),
-        Schema.const("image-and-text").description("需图片+文字"),
-        Schema.const("other").description("其他模板"),
-      ]).required(),
-      enabled: Schema.boolean().default(true).description("是否启用"),
-      weight: Schema.number()
-        .min(0)
-        .max(1000)
-        .step(1)
-        .default(100)
-        .description("权重"),
-    }),
-  )
-    .role("meme-generator:weights")
-    .default(defaultConfig.randomMemeBucketWeightRules)
-    .description("`meme.random`随机时的权重配置"),
-}).description("随机触发设置").collapse();
 
 const queueSchema = Schema.object({
   memeActionConcurrency: Schema.natural()
@@ -331,9 +200,6 @@ const queueSchema = Schema.object({
 }).description("动作排队与缓存设置").collapse();
 
 const runtimeSchema = Schema.object({
-  disableErrorReplyToPlatform: Schema.boolean()
-    .default(defaultConfig.disableErrorReplyToPlatform)
-    .description("是否关闭平台错误回复（仅写日志）"),
   infoFetchConcurrency: Schema.number()
     .min(0)
     .max(100)
@@ -346,7 +212,7 @@ const runtimeSchema = Schema.object({
     .step(1)
     .default(defaultConfig.initLoadRetryTimes)
     .description("初始化载入模板失败后的自动重试次数"),
-}).description("运行与错误设置").collapse();
+}).description("运行设置").collapse();
 
 const developerSchema = Schema.object({
   enableDeveloperDebugLog: Schema.boolean()
@@ -357,7 +223,148 @@ const developerSchema = Schema.object({
     .description("指定`meme.random`输出的模板`key`，留空不启用"),
 }).description("开发者模式").collapse();
 
-const groups = [basicSchema, triggerSchema, modelSchema, filterSchema, listSchema, completionSchema, randomSchema, queueSchema, runtimeSchema, developerSchema];
+/** 会话级分组；默认值由调用方给出，对话设置以旧插件配置中保存的值作为未设置时的取值。触发与筛选常用，保持展开；其余默认折叠。 */
+function routeGroups(d: RouteSettings) {
+  return [
+    Schema.object({
+      enableMemeCommandTrigger: Schema.boolean()
+        .default(d.enableMemeCommandTrigger)
+        .description("允许通过`meme key`或`meme 中文别名`生成 meme"),
+      enableDirectAliasWithoutPrefix: Schema.boolean()
+        .default(d.enableDirectAliasWithoutPrefix)
+        .description("允许中文别名跳过 meme 前缀直接触发"),
+      allowKeyWithoutPrefixTrigger: Schema.boolean()
+        .default(d.allowKeyWithoutPrefixTrigger)
+        .description("允许`key`跳过 meme 前缀直接触发"),
+      allowMentionPrefixDirectAliasTrigger: Schema.boolean()
+        .default(d.allowMentionPrefixDirectAliasTrigger)
+        .description("允许贴合参数触发，支持`meme key/中文别名@用户文本`，无前缀触发范围取决于已开启的中文别名或 key 直触发设置"),
+      allowLeadingAtBeforeCommand: Schema.boolean()
+        .default(d.allowLeadingAtBeforeCommand)
+        .description("允许前置 @ 参数触发，如`@用户 meme key/中文别名`"),
+      enableQuotedImageTrigger: Schema.boolean()
+        .default(d.enableQuotedImageTrigger)
+        .description("引用消息中的图片参与生成"),
+      enableQuotedTextTrigger: Schema.boolean()
+        .default(d.enableQuotedTextTrigger)
+        .description("未提供文本参数时使用引用消息的文字"),
+    }).description("触发方式"),
+    Schema.object({
+      excludedMemeKeys: Schema.array(Schema.string().min(1))
+        .role("meme-generator:excluded-templates")
+        .default(d.excludedMemeKeys)
+        .description("排除的模板`key`列表，可从后端模板预览中选择"),
+      excludeTextOnlyMemes: Schema.boolean()
+        .default(d.excludeTextOnlyMemes)
+        .description("排除仅需文字的模板"),
+      excludeSingleImageOnlyMemes: Schema.boolean()
+        .default(d.excludeSingleImageOnlyMemes)
+        .description("排除仅需 1 张图片的模板"),
+      excludeTwoImageOnlyMemes: Schema.boolean()
+        .default(d.excludeTwoImageOnlyMemes)
+        .description("排除需 2 张图片的模板"),
+      excludeImageAndTextMemes: Schema.boolean()
+        .default(d.excludeImageAndTextMemes)
+        .description("排除需图片+文字的模板"),
+      excludeOtherMemes: Schema.boolean()
+        .default(d.excludeOtherMemes)
+        .description("排除未命中现有类别排除项的其他模板"),
+    }).description("模板筛选"),
+    Schema.object({
+      renderMemeListAsImage: Schema.boolean()
+        .default(d.renderMemeListAsImage)
+        .description("`meme.list`以图片形式输出；图片由 chatluna-plugin-takumi 渲染，渲染失败时输出文本"),
+      memeListImageMode: Schema.union([
+        Schema.const("single").description("合成单张长图"),
+        Schema.const("multiple").description("按页拆成多张图片"),
+      ])
+        .default(d.memeListImageMode)
+        .description("`meme.list`图片模式"),
+      sendMemeListAsForward: Schema.boolean()
+        .default(d.sendMemeListAsForward)
+        .description("`meme.list`以 OneBot 合并转发发送"),
+      sendMemeSearchAsForward: Schema.boolean()
+        .default(d.sendMemeSearchAsForward)
+        .description("`meme.search`以 OneBot 合并转发发送"),
+      showMemeListKey: Schema.boolean()
+        .default(d.showMemeListKey)
+        .description("`meme.list`显示模板 key"),
+    }).description("列表输出").collapse(),
+    Schema.object({
+      emptyTextAutoFillRules: Schema.array(
+        Schema.object({
+          source: Schema.union([
+            Schema.const("template-default").description("模板默认文字"),
+            Schema.const("user-nickname").description("用户昵称"),
+          ]).required(),
+          enabled: Schema.boolean().default(true).description("启用该来源"),
+          weight: Schema.number()
+            .min(0)
+            .max(1000)
+            .step(1)
+            .default(100)
+            .description("权重（双开来源时用于随机分配）"),
+        }),
+      )
+        .role("meme-generator:weights")
+        .default(d.emptyTextAutoFillRules)
+        .description("未提供文本时的自动补全文案来源"),
+      autoUseGroupNicknameWhenNoDefaultText: Schema.boolean()
+        .default(d.autoUseGroupNicknameWhenNoDefaultText)
+        .description("模板无默认文字时优先使用群昵称补文案"),
+      autoUseAvatarWhenMinImagesOneAndNoImage: Schema.boolean()
+        .default(d.autoUseAvatarWhenMinImagesOneAndNoImage)
+        .description("最少需 1 图且无图时自动补发送者头像"),
+      autoFillOneMissingImageWithAvatar: Schema.boolean()
+        .default(d.autoFillOneMissingImageWithAvatar)
+        .description("已提供图片且仅差 1 图时自动补发送者头像"),
+      autoFillSenderAndBotAvatarsWhenMinImagesTwoAndNoImage: Schema.boolean()
+        .default(d.autoFillSenderAndBotAvatarsWhenMinImagesTwoAndNoImage)
+        .description("最少需 2 图且无图时自动补发送者与`bot`头像"),
+    }).description("文案与头像补全").collapse(),
+    Schema.object({
+      enableRandomDedupeWithinHours: Schema.boolean()
+        .default(d.enableRandomDedupeWithinHours)
+        .description("`meme.random`在时间窗口内不重复选取模板"),
+      randomDedupeWindowHours: Schema.number()
+        .min(1)
+        .max(720)
+        .step(1)
+        .default(d.randomDedupeWindowHours)
+        .description("`meme.random`去重时间窗口（小时）"),
+      enableRandomKeywordNotice: Schema.boolean()
+        .default(d.enableRandomKeywordNotice)
+        .description("`meme.random`附带模板关键词提示"),
+      randomMemeBucketWeightRules: Schema.array(
+        Schema.object({
+          category: Schema.union([
+            Schema.const("text-only").description("仅需文字"),
+            Schema.const("single-image-only").description("仅需 1 张图片"),
+            Schema.const("two-image-only").description("需 2 张图片"),
+            Schema.const("image-and-text").description("需图片+文字"),
+            Schema.const("other").description("其他模板"),
+          ]).required(),
+          enabled: Schema.boolean().default(true).description("启用该类别"),
+          weight: Schema.number()
+            .min(0)
+            .max(1000)
+            .step(1)
+            .default(100)
+            .description("权重"),
+        }),
+      )
+        .role("meme-generator:weights")
+        .default(d.randomMemeBucketWeightRules)
+        .description("`meme.random`随机时的权重配置"),
+    }).description("随机触发").collapse(),
+    Schema.object({
+      disableErrorReplyToPlatform: Schema.boolean()
+        .default(d.disableErrorReplyToPlatform)
+        .description("失败时不向平台回复错误信息，仅写入日志"),
+    }).description("错误回复").collapse(),
+  ];
+}
+
 const labels: Record<string, string> = {
   baseUrl: "后端地址", timeoutMs: "请求超时", emptyTextAutoFillRules: "文案来源与权重",
   autoUseAvatarWhenMinImagesOneAndNoImage: "单图模板补头像", autoFillOneMissingImageWithAvatar: "补齐一张图片",
@@ -381,16 +388,44 @@ const labels: Record<string, string> = {
 function labelFields(schema: Schema) {
   const fields = schema.dict;
   for (const [key, field] of Object.entries(fields ?? {})) {
-    const labeled = labels[key] ? field.extra("label", labels[key]) : field;
-    const described = typeof field.meta.description === "string"
-      ? labeled.description(field.meta.description.replaceAll("是否", ""))
-      : labeled;
+    const described = labels[key] ? field.label(labels[key]) : field;
     if (fields) fields[key] = described;
     labelFields(described);
   }
   if (schema.inner) labelFields(schema.inner);
   for (const item of schema.list ?? []) labelFields(item);
 }
+
+/** 对话设置「插件」标签页的会话级 Schema。 */
+export function routeSchema(defaults: RouteSettings): Schema<RouteSettings> {
+  const groups = routeGroups(defaults);
+  for (const group of groups) labelFields(group);
+  return Schema.intersect(groups);
+}
+
+/**
+ * 迁到对话设置前保存的取值：界面不再显示，只作为对话设置未设置时的默认值。
+ * 旧的分群排除没有对应的会话级字段，在规则未设置「排除模板」时并入对应群。
+ */
+const legacyRouteSchema = routeSchema(pickRouteSettings(defaultConfig));
+const legacyGroups = legacyRouteSchema.list ?? [];
+for (const [index, group] of legacyGroups.entries()) {
+  const fields = group.dict;
+  for (const [key, field] of Object.entries(fields ?? {})) if (fields) fields[key] = field.hidden();
+  legacyGroups[index] = group.hidden();
+}
+const legacyGroupSchema = Schema.object({
+  groupExcludedMemeKeys: Schema.array(
+    Schema.object({
+      groupId: Schema.string().required(),
+      excludedMemeKeys: Schema.array(Schema.string().min(1)).default([]),
+    }),
+  )
+    .default(defaultConfig.groupExcludedMemeKeys)
+    .hidden(),
+}).hidden();
+
+const groups = [basicSchema, modelSchema, queueSchema, runtimeSchema, developerSchema];
 for (const group of groups) labelFields(group);
 
-export const Config: Schema<Config> = Schema.intersect(groups);
+export const Config: Schema<Config> = Schema.intersect([...groups, legacyRouteSchema.hidden(), legacyGroupSchema]);

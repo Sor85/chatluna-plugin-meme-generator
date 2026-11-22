@@ -5,7 +5,7 @@ import { Context } from 'cordis'
 import { Schema } from '@chatluna/schema'
 import { SchemaForm, extensionOf } from '@chatluna/ui-schema-form/client'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Config } from '../src/config'
+import { Config, defaultConfig, pickRouteSettings, routeSchema } from '../src/config'
 
 const live = vi.hoisted(() => ({
   snapshot: { status: 'ready', data: {
@@ -41,10 +41,11 @@ vi.stubGlobal('IntersectionObserver', class {
 afterAll(() => vi.unstubAllGlobals())
 
 const key = 'promptMemeKeys'
-const fields: Record<string, Schema> = Object.assign({}, ...(Config.list ?? []).map((group) => group.dict))
+// The injected templates stay in the plugin config; the excluded ones moved to 对话设置.
+const groupsOf = (schema: Schema) => (schema.list ?? []).map((group) => group.dict)
+const fields: Record<string, Schema> = Object.assign({}, ...groupsOf(Config), ...groupsOf(routeSchema(pickRouteSettings(defaultConfig))))
 const excluded = 'excludedMemeKeys'
-const groups = 'groupExcludedMemeKeys'
-const schema = Schema.object({ [key]: fields[key], [excluded]: fields[excluded], [groups]: fields[groups] })
+const schema = Schema.object({ [key]: fields[key], [excluded]: fields[excluded] })
 let root: Root | undefined
 let container: HTMLDivElement
 let dispose: (() => Promise<void>) | undefined
@@ -130,7 +131,7 @@ describe('模板选择器', () => {
   })
 
   it('全局排除可全选后取消个别模板，只保存 key', async () => {
-    const current = await mount({ [groups]: [] })
+    const current = await mount()
     expect(container.textContent).toContain('未排除模板')
     await open(1)
     await click(textButton('全选'))
@@ -142,19 +143,9 @@ describe('模板选择器', () => {
     expect(current()[key]).toBeUndefined()
   })
 
-  it('分群排除的每组使用同一选择器，保留群号与其他组', async () => {
-    const current = await mount({ [groups]: [{ groupId: '123', excludedMemeKeys: ['gone'] }, { groupId: '456', excludedMemeKeys: [] }] })
-    expect(container.textContent).toContain('gone')
-    await open(3)
-    await click(option('抱'))
-    expect(current()[groups]).toEqual([{ groupId: '123', excludedMemeKeys: ['gone'] }, { groupId: '456', excludedMemeKeys: ['hug'] }])
-  })
-
   it('客户端扩展随生命周期注销', async () => {
-    const inner = fields[groups].inner?.dict?.excludedMemeKeys
     expect(extensionOf(fields[key], [])?.component).toBe(TemplateListField)
     expect(extensionOf(fields[excluded], [])?.component).toBe(ExcludedTemplateField)
-    expect(inner && extensionOf(inner, [])?.component).toBe(ExcludedTemplateField)
     await dispose?.()
     dispose = undefined
     expect(extensionOf(fields[key], [])?.component).not.toBe(TemplateListField)

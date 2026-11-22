@@ -4,10 +4,11 @@
  */
 
 import type { Context } from "cordis";
-import { h } from "@satorijs/core";
+import { h, type Session } from "@satorijs/core";
 import type {} from "koishi";
 import type {} from "chatluna-plugin-takumi";
 import type { Config } from "../config";
+import { excludedKeys, type MemeSettings } from "../settings";
 import { downloadImage } from "../utils/image";
 import { MemeBackendClient } from "../backend";
 import {
@@ -16,7 +17,9 @@ import {
   shouldRegisterDirectAlias,
 } from "./key-resolver";
 import {
-  buildCategoryExcludedMemeKeySet,
+  categoryExcludedKeys,
+  fetchCategoryParams,
+  hasCategoryExclusion,
   buildMemeListEntries,
   buildMemeListSections,
   buildListImages,
@@ -31,26 +34,17 @@ import {
   splitMemeListMessages,
 } from "./register/meme-list";
 import {
-  buildExcludedMemeKeySet,
-  buildGroupExcludedMemeKeySets,
   filterExcludedMemeKeys,
   isExcludedMemeKey,
-  resolveSessionGroupId,
 } from "./register/exclusion";
 import { mapRuntimeErrorMessage, replyOrSilent } from "./register/errors";
-import {
-  buildRandomConfig,
-  handleGenerate,
-  handleGenerateWithPreparedInput,
-  type PreparedAvatarImage,
-  type PreparedImages,
-} from "./register/generate";
+import { handleGenerate } from "./register/generate";
 import {
   installDirectAliasRuntime,
   normalizeMergedTriggerRestText,
 } from "./register/direct-alias-runtime";
 import { installRandomRuntime } from "./register/random-runtime";
-import type { MemeInfoResponse } from "../types";
+import type { MemeInfoResponse, MemeParamsType } from "../types";
 
 interface LeadingAtCommandParts {
   leadingAtSegments: string[];
@@ -204,37 +198,26 @@ function collectChineseAliases(info: MemeInfoResponse): string[] {
   return Array.from(new Set(aliases));
 }
 
-export function registerCommands(ctx: Context, config: Config, client: MemeBackendClient) {
-  const excludedMemeKeySet = buildExcludedMemeKeySet(config);
-  const groupExcludedMemeKeySets = buildGroupExcludedMemeKeySets(config);
-  let categoryExcludedMemeKeySet = new Set<string>();
-  let categoryExcludedMemeKeySetLoaded = false;
+export function registerCommands(ctx: Context, settings: MemeSettings, client: MemeBackendClient) {
+  // Process-level fields only; conversation behaviour is read per session through `settingsOf`.
+  const config = settings.config;
+  const settingsOf = (session?: Session): Config => settings.of(session);
+  // Category exclusion needs every template's params; they load once a conversation turns a category on.
+  let categoryParams: Map<string, MemeParamsType> | undefined;
   const ensureCategoryExcludedMemeKeySet = async (
+    current: Config,
     rawKeys?: string[],
     forceRefresh = false,
   ): Promise<void> => {
-    if (categoryExcludedMemeKeySetLoaded && !forceRefresh) return;
+    if (!hasCategoryExclusion(current)) return;
+    if (categoryParams && !forceRefresh) return;
     const keys = rawKeys ?? (await client.getKeys());
-    categoryExcludedMemeKeySet = await buildCategoryExcludedMemeKeySet(
-      client,
-      keys,
-      config,
-    );
-    categoryExcludedMemeKeySetLoaded = true;
+    categoryParams = await fetchCategoryParams(client, keys, config);
   };
-  const mergedGlobalExcludedMemeKeySet = (): Set<string> => {
-    if (categoryExcludedMemeKeySet.size === 0) return excludedMemeKeySet;
-    return new Set([...excludedMemeKeySet, ...categoryExcludedMemeKeySet]);
-  };
-  const mergedExcludedMemeKeySet = (session?: unknown): Set<string> => {
-    const globalExcludedSet = mergedGlobalExcludedMemeKeySet();
-    const groupId = resolveSessionGroupId(session);
-    const groupExcludedSet = groupId
-      ? groupExcludedMemeKeySets.get(groupId)
-      : undefined;
-    if (!groupExcludedSet || groupExcludedSet.size === 0)
-      return globalExcludedSet;
-    return new Set([...globalExcludedSet, ...groupExcludedSet]);
+  const mergedExcludedMemeKeySet = (current: Config): Set<string> => {
+    const excluded = excludedKeys(current);
+    if (!categoryParams) return excluded;
+    return new Set([...excluded, ...categoryExcludedKeys(categoryParams, current)]);
   };
 
   const resolveMemeKey = createMemeKeyResolver(client, {
@@ -246,14 +229,14 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
   const logger = ctx.logger;
   const memeCommand = ctx.command("meme");
 
-  const handleErrorReply = (scope: string, message: string): string => {
-    if (!config.disableErrorReplyToPlatform) return message;
+  const handleErrorReply = (current: Config, scope: string, message: string): string => {
+    if (!current.disableErrorReplyToPlatform) return message;
     logger.warn("%s failed: %s", scope, message);
     return "";
   };
 
-  const handleRuntimeError = (scope: string, error: unknown): string => {
-    return handleErrorReply(scope, mapRuntimeErrorMessage(error));
+  const handleRuntimeError = (current: Config, scope: string, error: unknown): string => {
+    return handleErrorReply(current, scope, mapRuntimeErrorMessage(error));
   };
 
   ctx.middleware(async (session, next) => {
@@ -285,7 +268,7 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
         String(Boolean(contentMatched)),
         String(Boolean(elementsMatched)),
         String(Boolean(leadingAtParts)),
-        String(config.allowLeadingAtBeforeCommand),
+        String(settingsOf(session).allowLeadingAtBeforeCommand),
       );
       logger.info(
         "leading-at debug: elements-count=%s elements-types=%s",
@@ -327,7 +310,8 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
       return await next();
     }
 
-    if (!config.allowLeadingAtBeforeCommand) {
+    const current = settingsOf(session);
+    if (!current.allowLeadingAtBeforeCommand) {
       if (config.enableDeveloperDebugLog) {
         logger.info(
           "leading-at debug: pass-through because allowLeadingAtBeforeCommand=false",
@@ -340,25 +324,25 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
     const normalizedSuffix = leadingAtParts.suffix.trim();
     // Koishi 会在 matcher 前过滤“@其他用户 别名”，此入口直接生成，不能依赖主命令开关。
     if (
-      config.enableDirectAliasWithoutPrefix &&
+      current.enableDirectAliasWithoutPrefix &&
       shouldRegisterDirectAlias(normalizedCommandText)
     ) {
       const resolvedKey = await resolveMemeKey(normalizedCommandText);
       if (resolvedKey !== normalizedCommandText) {
         let result;
         try {
-          await ensureCategoryExcludedMemeKeySet();
-          if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
-            result = handleErrorReply("meme.generate", "该模板已被排除。");
+          await ensureCategoryExcludedMemeKeySet(current);
+          if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(current))) {
+            result = handleErrorReply(current, "meme.generate", "该模板已被排除。");
           } else {
             // 仅复用父命令的参数解析，保留引号边界，不执行受开关控制的主命令。
             const { args = [], error } = memeCommand.parse(normalizedSuffix);
             result = error
-              ? handleErrorReply("meme.generate", error)
-              : await handleGenerate(ctx, session, client, config, resolvedKey, args);
+              ? handleErrorReply(current, "meme.generate", error)
+              : await handleGenerate(ctx, session, client, current, resolvedKey, args);
           }
         } catch (error) {
-          result = handleRuntimeError("meme.generate", error);
+          result = handleRuntimeError(current, "meme.generate", error);
         }
         if (config.enableDeveloperDebugLog) {
           logger.info(
@@ -403,38 +387,33 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
 
   const executePreview = async (
     key: string,
-    session?: unknown,
+    session?: Session,
   ): Promise<string | ReturnType<typeof h.image>> => {
-    if (!key) return handleErrorReply("meme.preview", "请提供模板 key。");
+    const current = settingsOf(session);
+    if (!key) return handleErrorReply(current, "meme.preview", "请提供模板 key。");
 
     try {
-      await ensureCategoryExcludedMemeKeySet();
+      await ensureCategoryExcludedMemeKeySet(current);
       const resolvedKey = await resolveMemeKey(key);
-      if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
-        return handleErrorReply("meme.preview", "该模板已被排除。");
+      if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(current))) {
+        return handleErrorReply(current, "meme.preview", "该模板已被排除。");
       }
       const preview = await client.getPreview(resolvedKey);
       return h.image(Buffer.from(preview.buffer), preview.mimeType);
     } catch (error) {
-      return handleRuntimeError("meme.preview", error);
+      return handleRuntimeError(current, "meme.preview", error);
     }
   };
 
   ctx.command("meme.list", "列出可用 meme 模板").action(async ({ session }) => {
+    const config = settingsOf(session);
     try {
-      const oldMergedExcludedCount = mergedExcludedMemeKeySet(session).size;
       const rawKeys = await client.getKeys();
-      await ensureCategoryExcludedMemeKeySet(rawKeys, true);
+      await ensureCategoryExcludedMemeKeySet(config, rawKeys, true);
       const keys = filterExcludedMemeKeys(
         rawKeys,
-        mergedExcludedMemeKeySet(session),
+        mergedExcludedMemeKeySet(config),
       );
-      if (oldMergedExcludedCount !== mergedExcludedMemeKeySet(session).size) {
-        logger.info(
-          "meme category exclusion loaded: %d keys",
-          categoryExcludedMemeKeySet.size,
-        );
-      }
       if (keys.length === 0)
         return replyOrSilent(
           config,
@@ -496,21 +475,22 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
       }
       return formatMemeListImageMessage(images);
     } catch (error) {
-      return handleRuntimeError("meme.list", error);
+      return handleRuntimeError(config, "meme.list", error);
     }
   });
 
   ctx
     .command("meme.search <关键词:string>", "搜索 meme 模板")
     .action(async ({ session }, keyword) => {
+      const config = settingsOf(session);
       if (!keyword)
-        return handleErrorReply("meme.search", "用法：meme.search <关键词>");
+        return handleErrorReply(config, "meme.search", "用法：meme.search <关键词>");
       try {
         const rawKeys = await client.getKeys();
-        await ensureCategoryExcludedMemeKeySet(rawKeys, true);
+        await ensureCategoryExcludedMemeKeySet(config, rawKeys, true);
         const keys = filterExcludedMemeKeys(
           rawKeys,
-          mergedExcludedMemeKeySet(session),
+          mergedExcludedMemeKeySet(config),
         );
         if (keys.length === 0)
           return replyOrSilent(
@@ -537,19 +517,20 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
         }
         return message;
       } catch (error) {
-        return handleRuntimeError("meme.search", error);
+        return handleRuntimeError(config, "meme.search", error);
       }
     });
 
   ctx
     .command("meme.info <key:string>", "查看模板参数约束")
     .action(async ({ session }, key) => {
-      if (!key) return handleErrorReply("meme.info", "请提供模板 key。");
+      const current = settingsOf(session);
+      if (!key) return handleErrorReply(current, "meme.info", "请提供模板 key。");
       try {
-        await ensureCategoryExcludedMemeKeySet();
+        await ensureCategoryExcludedMemeKeySet(current);
         const resolvedKey = await resolveMemeKey(key);
-        if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
-          return handleErrorReply("meme.info", "该模板已被排除。");
+        if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(current))) {
+          return handleErrorReply(current, "meme.info", "该模板已被排除。");
         }
         const info = await client.getInfo(resolvedKey);
         const params = info.params_type;
@@ -562,7 +543,7 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
           `default_texts: ${params.default_texts.join(" | ") || "(空)"}`,
         ].join("\n");
       } catch (error) {
-        return handleRuntimeError("meme.info", error);
+        return handleRuntimeError(current, "meme.info", error);
       }
     });
 
@@ -570,212 +551,85 @@ export function registerCommands(ctx: Context, config: Config, client: MemeBacke
     .command("meme.preview <key:string>", "预览模板效果")
     .action(async ({ session }, key) => executePreview(key, session));
 
-  const aliasLogger = logger;
-  let initializedNotified = false;
-
-  const notifyInitializedSummary = (count: number): void => {
-    if (initializedNotified) return;
-    initializedNotified = true;
-    logger.info("Loaded %d memes", count);
+  const isExcludedFromMergedSet = (key: string, current: Config): boolean => {
+    return isExcludedMemeKey(key, mergedExcludedMemeKeySet(current));
   };
 
-  const isExcludedFromGlobalSet = (key: string): boolean => {
-    return isExcludedMemeKey(key, mergedGlobalExcludedMemeKeySet());
-  };
+  // Any conversation may turn the unprefixed triggers on, so aliases always register and each message checks its own settings.
+  installDirectAliasRuntime({
+    ctx,
+    config,
+    settingsOf,
+    client,
+    logger,
+    ensureCategoryExcludedMemeKeySet,
+    isExcludedMemeKey: isExcludedFromMergedSet,
+    handleGenerate: async (session, current, key, texts) => {
+      return await handleGenerate(ctx, session, client, current, key, texts);
+    },
+  });
 
-  const isExcludedFromMergedSet = (
-    key: string,
-    session?: unknown,
-  ): boolean => {
-    return isExcludedMemeKey(key, mergedExcludedMemeKeySet(session));
-  };
-
-  const filterExcludedFromMergedSet = (
-    keys: string[],
-    session?: unknown,
-  ): string[] => {
-    return filterExcludedMemeKeys(keys, mergedExcludedMemeKeySet(session));
-  };
-
-  if (
-    config.enableDirectAliasWithoutPrefix ||
-    config.allowKeyWithoutPrefixTrigger
-  ) {
-    installDirectAliasRuntime({
-      ctx,
-      config,
-      client,
-      logger: aliasLogger,
-      ensureCategoryExcludedMemeKeySet,
-      notifyInitializedSummary,
-      isGloballyExcludedMemeKey: isExcludedFromGlobalSet,
-      isSessionExcludedMemeKey: isExcludedFromMergedSet,
-      handleGenerate: async (session, key, texts) => {
-        return await handleGenerate(ctx, session, client, config, key, texts);
-      },
-    });
-  } else {
-    let initRetryTimer: ReturnType<typeof setTimeout> | undefined;
-    let initRetryAttempts = 0;
-    let initRetryDisposed = false;
-    const maxInitRetryAttempts = config.initLoadRetryTimes;
-
-    const clearInitRetryTimer = (): void => {
-      if (initRetryTimer) {
-        clearTimeout(initRetryTimer);
-        initRetryTimer = undefined;
-      }
-    };
-
-    const stopInitRetry = (): void => {
-      clearInitRetryTimer();
-    };
-
-    const scheduleInitRetry = (delayMs: number): void => {
-      if (initRetryDisposed) return;
-      if (initRetryTimer) return;
-      if (initRetryAttempts >= maxInitRetryAttempts) {
-        aliasLogger.warn(
-          "初始化时获取表情列表重试在 %d 次后停止",
-          initRetryAttempts,
-        );
-        stopInitRetry();
-        return;
-      }
-
-      initRetryTimer = setTimeout(() => {
-        if (initRetryDisposed) {
-          initRetryTimer = undefined;
-          return;
-        }
-        initRetryTimer = undefined;
-        initRetryAttempts += 1;
-
-        void client
-          .getKeys()
-          .then((keys) => {
-            if (initRetryDisposed) {
-              stopInitRetry();
-              return;
-            }
-            notifyInitializedSummary(keys.length);
-            initRetryAttempts = 0;
-            stopInitRetry();
-          })
-          .catch((retryError) => {
-            if (initRetryDisposed) {
-              stopInitRetry();
-              return;
-            }
-            aliasLogger.warn(
-              "初始化时获取表情列表失败（attempt %d/%d）: %s",
-              initRetryAttempts,
-              maxInitRetryAttempts,
-              String(retryError),
-            );
-            scheduleInitRetry(3000);
-          });
-      }, delayMs);
-    };
-
-    void (async () => {
+  // 只控制主生成命令；关闭时不生成也不回复，meme.* 子命令照常可用。
+  ctx
+    .command("meme <key:string> [...texts]", "生成 meme 图片", {
+      captureQuote: false,
+    })
+    .action(async ({ session }, key, ...texts) => {
+      const current = settingsOf(session);
+      if (!current.enableMemeCommandTrigger) return;
+      if (!session)
+        return handleErrorReply(current, "meme.generate", "当前上下文不可用。");
       try {
-        const rawKeys = await client.getKeys();
-        await ensureCategoryExcludedMemeKeySet(rawKeys, true);
-        const keyCount = filterExcludedMemeKeys(
-          rawKeys,
-          mergedGlobalExcludedMemeKeySet(),
-        ).length;
-        notifyInitializedSummary(keyCount);
-      } catch (error) {
-        aliasLogger.warn("初始化时获取表情列表失败: %s", String(error));
-        scheduleInitRetry(3000);
-      }
-    })();
-
-    ctx.effect(() => () => {
-      initRetryDisposed = true;
-      stopInitRetry();
-    });
-  }
-
-  // 只控制主生成命令；关闭后保留 meme.* 子命令，让 Koishi help 仍能列出可用子指令。
-  if (config.enableMemeCommandTrigger) {
-    ctx
-      .command("meme <key:string> [...texts]", "生成 meme 图片", {
-        captureQuote: false,
-      })
-      .action(async ({ session }, key, ...texts) => {
-        if (!session)
-          return handleErrorReply("meme.generate", "当前上下文不可用。");
-        try {
-          await ensureCategoryExcludedMemeKeySet();
-          // 贴合写法会把 key/中文别名和 @ 提及挤在同一个 Koishi 参数里，
-          // 这里先拆出最长模板前缀，避免 @ 目标被后续逻辑误当成普通文本。
-          const mergedTrigger = config.allowMentionPrefixDirectAliasTrigger
-            ? await resolveMemeTriggerPrefix(key)
-            : undefined;
-          const resolvedKey = mergedTrigger?.key ?? (await resolveMemeKey(key));
-          if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(session))) {
-            return handleErrorReply("meme.generate", "该模板已被排除。");
-          }
-          const mergedTexts = mergedTrigger
-            ? [
-                ...normalizeMergedTriggerRestText(
-                  mergedTrigger.rest,
-                  session,
-                ),
-                ...texts,
-              ]
-            : texts;
-          return await handleGenerate(
-            ctx,
-            session,
-            client,
-            config,
-            resolvedKey,
-            mergedTexts,
-          );
-        } catch (error) {
-          return handleRuntimeError("meme.generate", error);
+        await ensureCategoryExcludedMemeKeySet(current);
+        // 贴合写法会把 key/中文别名和 @ 提及挤在同一个 Koishi 参数里，
+        // 这里先拆出最长模板前缀，避免 @ 目标被后续逻辑误当成普通文本。
+        const mergedTrigger = current.allowMentionPrefixDirectAliasTrigger
+          ? await resolveMemeTriggerPrefix(key)
+          : undefined;
+        const resolvedKey = mergedTrigger?.key ?? (await resolveMemeKey(key));
+        if (isExcludedMemeKey(resolvedKey, mergedExcludedMemeKeySet(current))) {
+          return handleErrorReply(current, "meme.generate", "该模板已被排除。");
         }
-      });
-  }
+        const mergedTexts = mergedTrigger
+          ? [
+              ...normalizeMergedTriggerRestText(
+                mergedTrigger.rest,
+                session,
+              ),
+              ...texts,
+            ]
+          : texts;
+        return await handleGenerate(
+          ctx,
+          session,
+          client,
+          current,
+          resolvedKey,
+          mergedTexts,
+        );
+      } catch (error) {
+        return handleRuntimeError(current, "meme.generate", error);
+      }
+    });
 
   installRandomRuntime({
     ctx,
     config,
+    settingsOf,
     client,
     logger,
     ensureCategoryExcludedMemeKeySet,
-    filterExcludedMemeKeys: filterExcludedFromMergedSet,
-    handleGenerateWithPreparedInput: async (
-      key: string,
-      texts: string[],
-      images: PreparedImages,
-      senderAvatarImage?: PreparedAvatarImage,
-      mentionedAvatarImages?: PreparedImages,
-      botAvatarImage?: PreparedAvatarImage,
-      senderName?: string,
-      groupNicknameText?: string,
-      preferredTextSource?: "template-default" | "user-nickname",
-    ) => {
-      return await handleGenerateWithPreparedInput(
-        client,
-        buildRandomConfig(config),
-        key,
-        texts,
-        images,
-        senderAvatarImage,
-        mentionedAvatarImages,
-        botAvatarImage,
-        senderName,
-        groupNicknameText,
-        preferredTextSource,
-      );
-    },
+    filterExcludedMemeKeys: (keys, current) =>
+      filterExcludedMemeKeys(keys, mergedExcludedMemeKeySet(current)),
     handleErrorReply,
     handleRuntimeError,
   });
-  return { client, resolveMemeKey, isExcludedMemeKey: isExcludedFromMergedSet };
+  return {
+    client,
+    resolveMemeKey,
+    settings,
+    /** Whether the conversation excludes the key, by key or by its template params. */
+    isExcludedMemeKey: (key: string, current: Config) =>
+      isExcludedFromMergedSet(key, current),
+  };
 }

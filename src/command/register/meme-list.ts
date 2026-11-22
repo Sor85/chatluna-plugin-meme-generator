@@ -8,7 +8,7 @@ import { h } from "@satorijs/core";
 import type {} from "koishi";
 import type { Config, MemeListImageMode } from "../../config";
 import { MemeBackendClient } from "../../backend";
-import type { MemeInfoResponse } from "../../types";
+import type { MemeInfoResponse, MemeParamsType } from "../../types";
 import type Takumi from "chatluna-plugin-takumi";
 import type { MeasuredNode } from "chatluna-plugin-takumi";
 import { normalizeMemeKey, resolveSessionGroupId } from "./exclusion";
@@ -425,31 +425,41 @@ export function isParamsTypeExcludedByConfig(
   );
 }
 
-export async function buildCategoryExcludedMemeKeySet(
+export function hasCategoryExclusion(config: Config): boolean {
+  return (
+    config.excludeTextOnlyMemes ||
+    config.excludeSingleImageOnlyMemes ||
+    config.excludeTwoImageOnlyMemes ||
+    config.excludeImageAndTextMemes ||
+    config.excludeOtherMemes
+  );
+}
+
+/** 按归一化 key 记录模板参数；信息获取失败的模板不参与类别排除。 */
+export async function fetchCategoryParams(
   client: MemeBackendClient,
   keys: string[],
   config: Config,
-): Promise<Set<string>> {
-  if (keys.length === 0) return new Set<string>();
-  if (
-    !config.excludeTextOnlyMemes &&
-    !config.excludeSingleImageOnlyMemes &&
-    !config.excludeTwoImageOnlyMemes &&
-    !config.excludeImageAndTextMemes &&
-    !config.excludeOtherMemes
-  ) {
-    return new Set<string>();
-  }
-
+): Promise<Map<string, MemeParamsType>> {
   const infoResults = await fetchMemeListInfos(client, keys, config);
+  return new Map(
+    infoResults.flatMap((result) =>
+      result.info
+        ? [[normalizeMemeKey(result.key), result.info.params_type] as const]
+        : [],
+    ),
+  );
+}
+
+export function categoryExcludedKeys(
+  params: ReadonlyMap<string, MemeParamsType>,
+  config: Config,
+): Set<string> {
+  if (!hasCategoryExclusion(config)) return new Set<string>();
   return new Set(
-    infoResults
-      .filter(
-        (result) =>
-          result.info &&
-          isParamsTypeExcludedByConfig(result.info.params_type, config),
-      )
-      .map((result) => normalizeMemeKey(result.key)),
+    [...params]
+      .filter(([, value]) => isParamsTypeExcludedByConfig(value, config))
+      .map(([key]) => key),
   );
 }
 

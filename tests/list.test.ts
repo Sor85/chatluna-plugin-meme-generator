@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import Takumi, { Config as TakumiConfig } from 'chatluna-plugin-takumi'
 import { describe, expect, it, vi } from 'vitest'
 import { defaultConfig } from '../src/config'
-import { buildCategoryExcludedMemeKeySet, buildListImages, buildMemeListEntries, buildMemeListSections, formatMemeListImageMessage, searchMemeInfos, sendMemeListForwardMessage, splitMemeListMessages } from '../src/command/register/meme-list'
+import { categoryExcludedKeys, fetchCategoryParams, buildListImages, buildMemeListEntries, buildMemeListSections, formatMemeListImageMessage, searchMemeInfos, sendMemeListForwardMessage, splitMemeListMessages } from '../src/command/register/meme-list'
 import { MemeBackendClient } from '../src/backend'
 import { resolveRandomMemeBucket } from '../src/command/random'
 import { backendFixture, meme } from './helpers/backend'
@@ -27,7 +27,7 @@ describe('列表、分页与转发', () => {
     const backend = await backendFixture([multi])
     try {
       const config = { ...defaultConfig, baseUrl: backend.url, excludeTwoImageOnlyMemes: true }
-      const result = await buildCategoryExcludedMemeKeySet(new MemeBackendClient(config), ['multi'], config)
+      const result = categoryExcludedKeys(await fetchCategoryParams(new MemeBackendClient(config), ['multi'], config), config)
       expect(result.has('multi')).toBe(true)
       expect(resolveRandomMemeBucket(multi.params_type)).toBe('other')
     } finally { await backend.close() }

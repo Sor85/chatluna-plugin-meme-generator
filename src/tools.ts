@@ -2,19 +2,17 @@ import type { Context } from 'cordis'
 import { Schema } from '@chatluna/schema'
 import type { ToolDefinition } from '@chatluna/tool'
 import type {} from '@chatluna/chat'
-import type { Config } from './config'
 import type { registerCommands } from './command/register'
-import { buildExcludedMemeKeySet, buildGroupExcludedMemeKeySets, normalizeMemeKey, resolveSessionGroupId } from './command/register/exclusion'
+import { normalizeMemeKey } from './command/register/exclusion'
 import { isParamsTypeExcludedByConfig } from './command/register/meme-list'
 import type { MemeSearchIndex } from './search'
+import { excludedKeys } from './settings'
 
 interface SearchArgs { keywords: string | string[]; limit: number }
 
-export function registerTools(ctx: Context, config: Config, runtime: ReturnType<typeof registerCommands>, index: MemeSearchIndex) {
+export function registerTools(ctx: Context, runtime: ReturnType<typeof registerCommands>, index: MemeSearchIndex) {
   const lifetime = new AbortController()
   ctx.effect(() => () => lifetime.abort())
-  const excluded = buildExcludedMemeKeySet(config)
-  const groups = buildGroupExcludedMemeKeySets(config)
   const tool: ToolDefinition<SearchArgs> = {
     name: 'meme_search',
     description: 'Find available meme templates (each composes custom text and/or user avatars into a new image) before using the <meme> action. Supply one or several template keys, aliases or short keywords; alternatives are combined and deduplicated. Matching is literal against template keys, aliases, tags and default texts, ignoring letter case; use concise keywords rather than long scene descriptions. Exact key/alias matches rank first. Returns exact template keys, aliases, tags and required image/text counts. This tool ONLY searches: it never generates or sends images. Select a returned key and use <meme key="..." text="..." at="..."/> to generate and send. Do not invent template keys; refine the keywords if no template matches.',
@@ -28,10 +26,10 @@ export function registerTools(ctx: Context, config: Config, runtime: ReturnType<
       const session = call.routeId ? ctx.chat.inbound(call.routeId) : undefined
       if (!session) throw new Error('meme_search 需要绑定平台会话以应用当前群的模板限制')
       const signal = AbortSignal.any([call.signal, lifetime.signal])
-      const groupExcluded = groups.get(resolveSessionGroupId(session))
+      const settings = runtime.settings.of(session)
+      const excluded = excludedKeys(settings)
       return index.search({ keywords: typeof args.keywords === 'string' ? [args.keywords] : args.keywords, limit: args.limit }, (info) => {
-        const key = normalizeMemeKey(info.key)
-        return !excluded.has(key) && !groupExcluded?.has(key) && !isParamsTypeExcludedByConfig(info.params_type, config)
+        return !excluded.has(normalizeMemeKey(info.key)) && !isParamsTypeExcludedByConfig(info.params_type, settings)
       }, signal)
     },
     render: { result: (_args, value) => ({ kind: 'generic', title: 'meme_search', content: [{ type: 'text', text: JSON.stringify(value) }] }) }

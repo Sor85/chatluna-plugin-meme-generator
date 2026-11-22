@@ -6,12 +6,15 @@ import Http from '@cordisjs/plugin-http'
 import Permissions from '@chatluna/permission'
 import Tools from '@chatluna/tool'
 import Takumi, { Config as TakumiConfig } from 'chatluna-plugin-takumi'
+import Routing from '@chatluna/routing'
+import SchemaRegistry from '@chatluna/ui-schema-registry'
 import type { ActionInput } from '@chatluna/chat'
 import { Config } from '../../src/config'
 import * as plugin from '../../src/index'
 import { backendFixture } from './backend'
 
-export async function host(overrides: Partial<Config> = {}) {
+/** `rules` loads the real routing and settings registry services with those 对话设置 rules. */
+export async function host(overrides: Partial<Config> = {}, options: { rules?: unknown[] } = {}) {
   const backend = await backendFixture()
   const ctx = new Context()
   await ctx.plugin(Permissions, {})
@@ -20,6 +23,10 @@ export async function host(overrides: Partial<Config> = {}) {
   await ctx.plugin(Http)
   await ctx.plugin(Tools, {})
   await ctx.plugin(Takumi, TakumiConfig.parse({}))
+  if (options.rules) {
+    await ctx.plugin(SchemaRegistry)
+    await ctx.plugin(Routing, { rules: options.rules })
+  }
   const sent: string[] = []
   const bot = {
     ctx, platform: 'onebot', selfId: 'bot', user: { id: 'bot', name: '机器人' }, logger: ctx.logger,
@@ -56,8 +63,8 @@ export async function host(overrides: Partial<Config> = {}) {
       current = value
       return (await value.execute(input, true)).map(String).join('')
     },
-    async receive(input: string) {
-      const value = session(input)
+    async receive(input: string, guild = 'group') {
+      const value = session(input, guild)
       current = value
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => { off(); reject(new Error('Middleware did not settle')) }, 5000)

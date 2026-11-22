@@ -1,14 +1,11 @@
-import type { Config } from './config'
 import type { MemeBackendClient } from './backend'
 import type { MemeInfoResponse } from './types'
-import { buildExcludedMemeKeySet, buildGroupExcludedMemeKeySets, normalizeGroupId, normalizeMemeKey } from './command/register/exclusion'
+import { normalizeMemeKey } from './command/register/exclusion'
 import { isParamsTypeExcludedByConfig } from './command/register/meme-list'
 import { aliases } from './search'
+import { excludedKeys, type MemeSettings, type PromptScene } from './settings'
 
 const RETRY_MS = 60_000
-
-/** The fields of the host's PromptEnvironment that pick the group exclusion. */
-interface PromptScene { readonly isDirect?: boolean; readonly guildId?: string }
 
 function count(min: number, max: number, noun: string) {
   if (max <= 0) return ''
@@ -32,13 +29,9 @@ export class PromptTemplates {
   private loading?: Promise<void>
   private retryAt = 0
   private keys: string[]
-  private excluded: Set<string>
-  private groups: Map<string, Set<string>>
 
-  constructor(private config: Config, private client: MemeBackendClient, private signal: AbortSignal) {
-    this.keys = [...new Set(config.promptMemeKeys.map((key) => key.trim()).filter(Boolean))]
-    this.excluded = buildExcludedMemeKeySet(config)
-    this.groups = buildGroupExcludedMemeKeySets(config)
+  constructor(private settings: MemeSettings, private client: MemeBackendClient, private signal: AbortSignal) {
+    this.keys = [...new Set(settings.config.promptMemeKeys.map((key) => key.trim()).filter(Boolean))]
     this.load()
   }
 
@@ -68,12 +61,12 @@ export class PromptTemplates {
 
   prompt(env: PromptScene): string {
     this.load()
-    const group = env.isDirect ? undefined : this.groups.get(normalizeGroupId(env.guildId))
+    const settings = this.settings.at(env)
+    const excluded = excludedKeys(settings)
     const lines = this.keys.flatMap((key) => {
       const info = this.infos.get(key)
-      const normalized = normalizeMemeKey(info?.key ?? key)
-      if (this.excluded.has(normalized) || group?.has(normalized)) return []
-      if (info && isParamsTypeExcludedByConfig(info.params_type, this.config)) return []
+      if (excluded.has(normalizeMemeKey(info?.key ?? key))) return []
+      if (info && isParamsTypeExcludedByConfig(info.params_type, settings)) return []
       return [describeTemplate(key, info)]
     })
     if (!lines.length) return ''

@@ -22,6 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit"
   },
   "peerDependencies": {
+    "@chatluna/satori": ">=2.0.0-alpha.0",
     "@chatluna/schema": ">=2.0.0-alpha.0",
     "@chatluna/transform": ">=2.0.0-alpha.0",
     "@chatluna/utils": ">=2.0.0-alpha.0",
@@ -34,6 +35,8 @@
     "@chatluna/chat": "workspace:*",
     "@chatluna/message": "workspace:*",
     "@chatluna/permission": "workspace:*",
+    "@chatluna/routing": "workspace:*",
+    "@chatluna/satori": "workspace:*",
     "@chatluna/schema": "workspace:*",
     "@chatluna/storage-files": "workspace:*",
     "@chatluna/tool": "workspace:*",
@@ -41,6 +44,7 @@
     "@chatluna/ui-client": "workspace:*",
     "@chatluna/ui-kit": "workspace:*",
     "@chatluna/ui-schema-form": "workspace:*",
+    "@chatluna/ui-schema-registry": "workspace:*",
     "@chatluna/ui-server": "workspace:*",
     "@chatluna/utils": "workspace:*",
     "@cordisjs/plugin-database": "4.2.0",
@@ -63,6 +67,6 @@
       "zh": "表情包生成、随机去重、头像与文字补全及原生 meme 动作",
       "en": "Meme generation, random selection, avatar/text completion and native meme actions"
     },
-    "service": { "required": ["koishi", "http", "takumi"], "optional": ["tools", "chat", "agents", "chatluna_storage", "chatluna_webui"] }
+    "service": { "required": ["koishi", "http", "takumi"], "optional": ["tools", "chat", "agents", "chatluna_storage", "chatluna_webui", "routing", "schemas"] }
   }
 }

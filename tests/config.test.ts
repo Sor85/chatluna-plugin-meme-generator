@@ -2,24 +2,43 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { Config, defaultConfig } from '../src/config'
+import { Config, ROUTE_KEYS, defaultConfig, pickRouteSettings, routeSchema } from '../src/config'
 
 describe('配置与项目说明', () => {
-  it('常用分组展开、低频分组默认折叠，字段归属不重复', () => {
-    const groups = (Config.list ?? []).map((group) => [group.meta.description, group.meta.collapse === true])
-    expect(groups).toEqual([
-      ['基础设置', false], ['触发方式设置', false], ['模型调用设置', false], ['模板筛选设置', false],
-      ['列表输出设置', true], ['文案与头像补全设置', true], ['随机触发设置', true],
-      ['动作排队与缓存设置', true], ['运行与错误设置', true], ['开发者模式', true]
+  it('插件配置只显示进程级分组，会话级字段只在对话设置出现', () => {
+    const visible = (Config.list ?? []).filter((group) => !group.meta.hidden)
+    expect(visible.map((group) => [group.meta.description, group.meta.collapse === true])).toEqual([
+      ['基础设置', false], ['模型调用设置', false], ['动作排队与缓存设置', true], ['运行设置', true], ['开发者模式', true]
     ])
-    const keys = (Config.list ?? []).flatMap((group) => Object.keys(group.dict ?? {}))
-    expect(new Set(keys).size).toBe(keys.length)
-    expect(keys.sort()).toEqual(Object.keys(defaultConfig).sort())
+    const global = visible.flatMap((group) => Object.keys(group.dict ?? {}))
+    const route = (routeSchema(pickRouteSettings(defaultConfig)).list ?? []).flatMap((group) => Object.keys(group.dict ?? {}))
+    expect(new Set(global).size).toBe(global.length)
+    expect(new Set(route).size).toBe(route.length)
+    expect(route.sort()).toEqual([...ROUTE_KEYS].sort())
+    expect(global.filter((key) => route.includes(key))).toEqual([])
+    expect([...global, ...route, 'groupExcludedMemeKeys'].sort()).toEqual(Object.keys(defaultConfig).sort())
   })
-  it('默认配置与十组设置一致，所有字段有中文标签', () => {
+  it('旧取值以隐藏字段保留，并作为会话级默认值', () => {
+    const hidden = (Config.list ?? []).filter((group) => group.meta.hidden)
+    expect(hidden).toHaveLength(2)
+    const legacy = hidden.flatMap((group) => [group, ...(group.list ?? [])]).flatMap((group) => Object.values(group.dict ?? {}))
+    expect(legacy).toHaveLength(ROUTE_KEYS.length + 1)
+    for (const field of legacy) expect(field.meta.hidden).toBe(true)
+    const saved = Config({ enableQuotedTextTrigger: true, excludedMemeKeys: ['hello'], groupExcludedMemeKeys: [{ groupId: '1', excludedMemeKeys: ['x'] }] })
+    expect(saved.groupExcludedMemeKeys).toEqual([{ groupId: '1', excludedMemeKeys: ['x'] }])
+    const route = routeSchema(pickRouteSettings(saved))
+    expect(route({})).toMatchObject({ enableQuotedTextTrigger: true, excludedMemeKeys: ['hello'] })
+    expect(route({ enableQuotedTextTrigger: false }).enableQuotedTextTrigger).toBe(false)
+    expect(route({})).not.toHaveProperty('groupExcludedMemeKeys')
+  })
+  it('默认配置一致，所有可见字段有中文标签和陈述式说明', () => {
     expect(Config({})).toEqual(defaultConfig)
-    expect(Config.list).toHaveLength(10)
-    for (const group of Config.list ?? []) {
+    const route = routeSchema(pickRouteSettings(defaultConfig))
+    expect((route.list ?? []).map((group) => [group.meta.description, group.meta.collapse === true])).toEqual([
+      ['触发方式', false], ['模板筛选', false], ['列表输出', true], ['文案与头像补全', true], ['随机触发', true], ['错误回复', true]
+    ])
+    const visible = [...(Config.list ?? []).filter((group) => !group.meta.hidden), ...(route.list ?? [])]
+    for (const group of visible) {
       for (const field of Object.values(group.dict ?? {})) {
         expect(field.meta.label).toBeTruthy()
         expect(typeof field.meta.description).toBe('string')
@@ -32,12 +51,11 @@ describe('配置与项目说明', () => {
     expect(defaultConfig.randomMemeBucketWeightRules).toHaveLength(5)
   })
   it('权重数组与模板 key 数组使用插件专属角色', () => {
-    const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
+    const fields = Object.fromEntries([...(Config.list ?? []), ...(routeSchema(pickRouteSettings(defaultConfig)).list ?? [])]
+      .flatMap((group) => Object.entries(group.dict ?? {})))
     expect(fields.randomMemeBucketWeightRules.meta.role).toBe('meme-generator:weights')
     expect(fields.emptyTextAutoFillRules.meta.role).toBe('meme-generator:weights')
     expect(fields.excludedMemeKeys.meta.role).toBe('meme-generator:excluded-templates')
-    expect(fields.groupExcludedMemeKeys.meta.role).toBe('table')
-    expect(fields.groupExcludedMemeKeys.inner?.dict?.excludedMemeKeys.meta.role).toBe('meme-generator:excluded-templates')
     expect(fields.promptMemeKeys.meta.role).toBe('meme-generator:templates')
   })
   it('保留宿主识别客户端构建所需的依赖声明', () => {
@@ -45,7 +63,7 @@ describe('配置与项目说明', () => {
     expect(manifest.devDependencies['@chatluna/ui-client']).toBe('workspace:*')
   })
   it('无前缀模板键默认开启，显式关闭值保持不变', () => {
-    const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
+    const fields = Object.fromEntries((routeSchema(pickRouteSettings(defaultConfig)).list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
     expect(defaultConfig.allowKeyWithoutPrefixTrigger).toBe(true)
     expect(fields.allowKeyWithoutPrefixTrigger.meta.default).toBe(true)
     expect(Config({}).allowKeyWithoutPrefixTrigger).toBe(true)
