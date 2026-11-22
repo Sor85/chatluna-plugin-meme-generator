@@ -2,7 +2,7 @@ import type { Context } from 'cordis'
 import type { Session } from '@satorijs/core'
 import type { Schema } from '@chatluna/schema'
 import { routeIdOfSessionId } from '@chatluna/satori'
-import { assignDefined } from '@chatluna/utils/object'
+import { assignDefined, isPlainObject } from '@chatluna/utils/object'
 import type { Resolution } from '@chatluna/routing'
 import type {} from '@chatluna/ui-schema-registry'
 import { type Config, type RouteSettings, pickRouteSettings, routeSchema } from './config'
@@ -75,7 +75,10 @@ export class MemeSettings {
   }
 
   private resolve(resolution: Resolution | undefined, groupId: string): Config {
-    const settings = this.schema.parse(structuredClone(resolution?.get(ROUTE_NAMESPACE) ?? {}))
+    // `get` throws while the namespace is unregistered (schemas not loaded yet, or registration pending); read `values`
+    // so that window falls back to the plugin config instead of failing.
+    const values = resolution?.values[ROUTE_NAMESPACE]
+    const settings = this.schema.parse(structuredClone(isPlainObject(values) ? values : {}))
     // The old per-group list adds to the excluded templates until a rule sets that field for the conversation.
     const legacy = this.groups.get(groupId)
     if (legacy && !Object.hasOwn(resolution?.sources ?? {}, `${ROUTE_NAMESPACE}.excludedMemeKeys`))

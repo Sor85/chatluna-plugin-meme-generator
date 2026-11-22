@@ -11,8 +11,8 @@ function rule(id: string, guild: string | undefined, values: Record<string, unkn
     values: { 'meme-generator': values }
   }
 }
-async function setup(config: Parameters<typeof host>[0], rules: unknown[]) {
-  const value = await host(config, { rules })
+async function setup(config: Parameters<typeof host>[0], rules: unknown[], schemas = true) {
+  const value = await host(config, { rules, schemas })
   cleanup.push(value.close)
   return value
 }
@@ -33,6 +33,13 @@ describe('对话设置按会话覆盖', () => {
     }
     await app.fiber.dispose()
     expect(app.ctx.schemas.namespace('meme-generator')).toBeUndefined()
+  })
+
+  it('命名空间未注册时退回插件配置，不抛错', async () => {
+    const app = await setup({ excludedMemeKeys: ['world'], enableDirectAliasWithoutPrefix: true }, [], false)
+    await vi.waitFor(() => expect(app.ctx.$processor._matchers.size).toBeGreaterThan(0))
+    expect(await app.execute('meme world')).toContain('已被排除')
+    expect(await app.execute('meme hello')).toContain('<img')
   })
 
   it('群规则覆盖全局规则，未匹配的群沿用全局值', async () => {

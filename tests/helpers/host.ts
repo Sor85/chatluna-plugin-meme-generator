@@ -14,7 +14,7 @@ import * as plugin from '../../src/index'
 import { backendFixture } from './backend'
 
 /** `rules` loads the real routing and settings registry services with those 对话设置 rules. */
-export async function host(overrides: Partial<Config> = {}, options: { rules?: unknown[] } = {}) {
+export async function host(overrides: Partial<Config> = {}, options: { rules?: unknown[]; schemas?: boolean } = {}) {
   const backend = await backendFixture()
   const ctx = new Context()
   await ctx.plugin(Permissions, {})
@@ -24,7 +24,7 @@ export async function host(overrides: Partial<Config> = {}, options: { rules?: u
   await ctx.plugin(Tools, {})
   await ctx.plugin(Takumi, TakumiConfig.parse({}))
   if (options.rules) {
-    await ctx.plugin(SchemaRegistry)
+    if (options.schemas !== false) await ctx.plugin(SchemaRegistry)
     await ctx.plugin(Routing, { rules: options.rules })
   }
   const sent: string[] = []
