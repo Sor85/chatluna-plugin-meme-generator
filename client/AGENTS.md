@@ -2,7 +2,7 @@
 
 适用范围：`client/`。同时遵守根 `AGENTS.md`；配置契约见 `src/AGENTS.md`，回归测试见 `tests/AGENTS.md`。
 
-- 只注册 `meme-generator:weights`、`meme-generator:templates` 与 `meme-generator:excluded-templates` 数组渲染器，不注册通用 `array/table`，不新增设置路由或独立保存接口，避免影响其他插件。扩展按角色匹配，插件设置页（注入模板）与对话设置的会话级表单（权重、排除模板）共用。
+- 只注册 `meme-generator:weights`、`meme-generator:templates` 与 `meme-generator:excluded-templates` 数组渲染器，不注册通用 `array/table`，不新增设置路由或独立保存接口，避免影响其他插件。扩展按角色匹配，目前三种角色的字段都在对话设置的会话级表单中渲染（`formId` 为 `routing:meme-generator`）。
 - `template-field.tsx` 复用宿主 `PickerListField` 的网格布局（与 OneBot 可用表情同一组件），数据来自 `useLive('meme-generator.templates')`，只保存模板 key 数组。注入模板不开启 `bulk`：全选会把数百个模板写进模型提示；排除模板开启 `bulk`，便于全选后保留少数模板。预览用 IntersectionObserver 在进入视口时通过 `callAction` 请求，模块级缓存按 key 去重并限制 6 个并发；失败从缓存移除，下次挂载重试。
 - 通过 `registerReactFormExtension` 注册并由 Cordis `ctx.effect` 注销；服务端可选注入 `chatluna_webui` 加载客户端，不让命令依赖 WebUI。
 - 表格与按钮复用 `@chatluna/ui-kit`，单元格调用 SchemaForm 的 `render(..., { embedded: true })`，保留宿主校验和控件行为。外层使用 `extensionProps` 保留整组恢复默认、撤销与 JSON 编辑。

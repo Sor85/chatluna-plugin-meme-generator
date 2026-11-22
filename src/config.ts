@@ -141,7 +141,7 @@ export const ROUTE_KEYS = [
   "enableMemeCommandTrigger", "enableDirectAliasWithoutPrefix", "allowKeyWithoutPrefixTrigger",
   "allowMentionPrefixDirectAliasTrigger", "allowLeadingAtBeforeCommand", "enableQuotedImageTrigger", "enableQuotedTextTrigger",
   "excludedMemeKeys", "excludeTextOnlyMemes", "excludeSingleImageOnlyMemes", "excludeTwoImageOnlyMemes",
-  "excludeImageAndTextMemes", "excludeOtherMemes",
+  "excludeImageAndTextMemes", "excludeOtherMemes", "promptMemeKeys",
   "renderMemeListAsImage", "memeListImageMode", "sendMemeListAsForward", "sendMemeSearchAsForward", "showMemeListKey",
   "emptyTextAutoFillRules", "autoUseGroupNicknameWhenNoDefaultText", "autoUseAvatarWhenMinImagesOneAndNoImage",
   "autoFillOneMissingImageWithAvatar", "autoFillSenderAndBotAvatarsWhenMinImagesTwoAndNoImage",
@@ -167,13 +167,6 @@ const basicSchema = Schema.object({
     .default(defaultConfig.timeoutMs)
     .description("请求超时时间（毫秒）"),
 }).description("基础设置");
-
-const modelSchema = Schema.object({
-  promptMemeKeys: Schema.array(Schema.string().min(1))
-    .role("meme-generator:templates")
-    .default(defaultConfig.promptMemeKeys)
-    .description("选中的模板连同名称与图文数量写入`meme`动作提示，模型无需先查询即可直接使用；未选中的模板仍可通过`meme_search`查找。当前会话的排除规则同样生效"),
-}).description("模型调用设置");
 
 const queueSchema = Schema.object({
   memeActionConcurrency: Schema.natural()
@@ -218,7 +211,7 @@ const developerSchema = Schema.object({
     .description("指定`meme.random`输出的模板`key`，留空不启用"),
 }).description("开发者模式").collapse();
 
-/** 会话级分组；默认值由调用方给出，对话设置以旧插件配置中保存的值作为未设置时的取值。触发与筛选常用，保持展开；其余默认折叠。 */
+/** 会话级分组；默认值由调用方给出，对话设置以旧插件配置中保存的值作为未设置时的取值。触发、筛选与模型调用常用，保持展开；其余默认折叠。 */
 function routeGroups(d: RouteSettings) {
   return [
     Schema.object({
@@ -265,6 +258,12 @@ function routeGroups(d: RouteSettings) {
         .default(d.excludeOtherMemes)
         .description("排除未命中现有类别排除项的其他模板"),
     }).description("模板筛选"),
+    Schema.object({
+      promptMemeKeys: Schema.array(Schema.string().min(1))
+        .role("meme-generator:templates")
+        .default(d.promptMemeKeys)
+        .description("选中的模板连同名称与图文数量写入`meme`动作提示，模型无需先查询即可直接使用；未选中的模板仍可通过`meme_search`查找。排除规则同样生效"),
+    }).description("模型调用"),
     Schema.object({
       renderMemeListAsImage: Schema.boolean()
         .default(d.renderMemeListAsImage)
@@ -420,7 +419,7 @@ const legacyGroupSchema = Schema.object({
     .hidden(),
 }).hidden();
 
-const groups = [basicSchema, modelSchema, queueSchema, runtimeSchema, developerSchema];
+const groups = [basicSchema, queueSchema, runtimeSchema, developerSchema];
 for (const group of groups) labelFields(group);
 
 export const Config: Schema<Config> = Schema.intersect([...groups, legacyRouteSchema.hidden(), legacyGroupSchema]);

@@ -8,7 +8,7 @@ describe('配置与项目说明', () => {
   it('插件配置只显示进程级分组，会话级字段只在对话设置出现', () => {
     const visible = (Config.list ?? []).filter((group) => !group.meta.hidden)
     expect(visible.map((group) => [group.meta.description, group.meta.collapse === true])).toEqual([
-      ['基础设置', false], ['模型调用设置', false], ['动作排队与缓存设置', true], ['运行设置', true], ['开发者模式', true]
+      ['基础设置', false], ['动作排队与缓存设置', true], ['运行设置', true], ['开发者模式', true]
     ])
     const global = visible.flatMap((group) => Object.keys(group.dict ?? {}))
     const route = (routeSchema(pickRouteSettings(defaultConfig)).list ?? []).flatMap((group) => Object.keys(group.dict ?? {}))
@@ -35,7 +35,7 @@ describe('配置与项目说明', () => {
     expect(Config({})).toEqual(defaultConfig)
     const route = routeSchema(pickRouteSettings(defaultConfig))
     expect((route.list ?? []).map((group) => [group.meta.description, group.meta.collapse === true])).toEqual([
-      ['触发方式', false], ['模板筛选', false], ['列表输出', true], ['文案与头像补全', true], ['随机触发', true], ['错误回复', true]
+      ['触发方式', false], ['模板筛选', false], ['模型调用', false], ['列表输出', true], ['文案与头像补全', true], ['随机触发', true], ['错误回复', true]
     ])
     const visible = [...(Config.list ?? []).filter((group) => !group.meta.hidden), ...(route.list ?? [])]
     for (const group of visible) {
@@ -75,7 +75,7 @@ describe('配置与项目说明', () => {
       expect(defaultConfig).not.toHaveProperty(name)
       expect(Config({})).not.toHaveProperty(name)
     }
-    expect(fields.promptMemeKeys).toBeDefined()
+    expect(fields.baseUrl).toBeDefined()
   })
   it('仅保留关键词检索缓存配置，不提供嵌入模型或阈值选项', () => {
     const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))

@@ -72,6 +72,19 @@ describe('对话设置按会话覆盖', () => {
     expect(app.backend.generated).toHaveLength(1)
   })
 
+  it('注入模板按会话选择，旧取值作为默认值', async () => {
+    const app = await setup({ promptMemeKeys: ['world'] }, [rule('tpl', 'tpl', { promptMemeKeys: ['hello'] }), rule('none', 'none', { promptMemeKeys: [] })])
+    const prompt = (guildId: string) => {
+      const value = app.actions.get('meme')?.prompt
+      if (typeof value !== 'function') throw new Error('meme 动作没有动态提示')
+      return value({ now: 0, platform: 'onebot', selfId: 'bot', isDirect: false, guildId })
+    }
+    await vi.waitFor(() => expect(prompt('tpl')).toContain('- hello (你好)'))
+    expect(prompt('tpl')).not.toContain('world')
+    await vi.waitFor(() => expect(prompt('group')).toContain('- world (世界)'))
+    expect(prompt('none')).toBe('')
+  })
+
   it('错误静默与类别排除按群读取', async () => {
     const app = await setup({ disableErrorReplyToPlatform: false }, [
       rule('silent', 'silent', { disableErrorReplyToPlatform: true, excludeTextOnlyMemes: true })

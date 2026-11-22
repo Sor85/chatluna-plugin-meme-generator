@@ -15,7 +15,7 @@
 - 列表图片与模板预览加载真实 `chatluna-plugin-takumi` 服务（`tests/helpers/host.ts` 同样加载），覆盖 emoji 只经传入的下载函数。
 - 目录说明守卫检查根清单路径存在，所有子目录 AGENTS.md 都已登记。
 - 发布脚本测试在独立临时目录复制脚本，以 PATH 中的 Git/Yarn/npm CLI 替身验证流程、失败停止、包检查、版本确认与标签顺序；不得执行真实发布、提交或推送。替身中的 `yarn test` 不启动真实测试，避免发布演练的测试阶段递归调用自身。
-- `templates.test.ts` 用记录型替身提供 `chatluna_webui`（只需 addEntry/state/action），验证注入提示的格式、排除与 WebUI 状态及预览缓存；预览渲染需真实可解码图片，使用夹具的 `validPng()` 与 `setPreview`，原 `PNG` 常量的 CRC 无效，只能用于不解码的场景。`template-field.test.tsx` 覆盖注入（插件配置）与排除（会话级 Schema）两处选择器，部分 mock `@chatluna/ui-client/client` 的 `useLive`/`callAction`，并让 IntersectionObserver 立即可见。
-- `routing.test.ts` 通过 `host(config, { rules })` 加载真实 `@chatluna/routing` 与 `@chatluna/ui-schema-registry`，验证命名空间注册与卸载、旧取值作为默认值、群规则覆盖全局、旧分群排除仅在规则未设置时生效、无前缀别名按群开启。其余测试不传 `rules`，走无路由服务时只读插件配置的路径。
+- `templates.test.ts` 用记录型替身提供 `chatluna_webui`（只需 addEntry/state/action），验证注入提示的格式、排除与 WebUI 状态及预览缓存；预览渲染需真实可解码图片，使用夹具的 `validPng()` 与 `setPreview`，原 `PNG` 常量的 CRC 无效，只能用于不解码的场景。`template-field.test.tsx` 覆盖注入与排除两处选择器（均取自会话级 Schema），部分 mock `@chatluna/ui-client/client` 的 `useLive`/`callAction`，并让 IntersectionObserver 立即可见。
+- `routing.test.ts` 通过 `host(config, { rules })` 加载真实 `@chatluna/routing` 与 `@chatluna/ui-schema-registry`，验证命名空间注册与卸载、旧取值作为默认值、群规则覆盖全局、旧分群排除仅在规则未设置时生效、无前缀别名与注入模板按群选择。其余测试不传 `rules`，走无路由服务时只读插件配置的路径。
 - 配置测试同时检查插件配置可见分组、会话级分组与隐藏旧字段：三者字段不重叠且合起来覆盖 `defaultConfig`。
 - `weight-table.test.tsx` 在 jsdom 内挂载真实 SchemaForm / ui-kit，验证权重编辑、开关、排序、增删、默认值与扩展释放；DOM 测试不等于浏览器视觉验收，不修改运行实例配置。

@@ -31,9 +31,9 @@ function webui(app: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe('注入模板', () => {
-  it('未选择模板时不注册动态提示', async () => {
+  it('未选择模板时动态提示为空', async () => {
     const app = await setup()
-    expect(app.actions.get('meme')?.prompt).toBeUndefined()
+    expect(prompt(app)).toBe('')
   })
 
   it('选中模板连同名称与图文数量写入动作提示，读取失败的 key 原样列出', async () => {
