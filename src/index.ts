@@ -26,8 +26,7 @@ export function apply(ctx: Context, config: Config) {
   // One metadata snapshot serves both the meme_search tool and the settings page's template picker.
   const index = new MemeSearchIndex(resolved, client)
   ctx.inject(['chatluna_webui'], (ctx) => registerWebUI(ctx, client, index, lifetime.signal))
-  if (resolved.enableMemeXmlTool) {
-    ctx.inject(['chat'], (ctx) => registerMemeAction(ctx, resolved, runtime))
-    ctx.inject(['tools', 'chat'], (ctx) => registerTools(ctx, runtime, index))
-  }
+  // Whether the model may use them is up to ChatLuna's own action and tool settings.
+  ctx.inject(['chat'], (ctx) => registerMemeAction(ctx, resolved, runtime))
+  ctx.inject(['tools', 'chat'], (ctx) => registerTools(ctx, runtime, index))
 }

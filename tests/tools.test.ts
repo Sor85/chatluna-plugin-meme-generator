@@ -8,7 +8,7 @@ import { normalizeValues } from '../src/actions'
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(0)) await close() })
-async function setup(config: Parameters<typeof host>[0] = {}) { const value = await host({ enableMemeXmlTool: true, ...config }); cleanup.push(value.close); return value }
+async function setup(config: Parameters<typeof host>[0] = {}) { const value = await host(config); cleanup.push(value.close); return value }
 async function runAction(app: Awaited<ReturnType<typeof setup>>, attrs: Record<string, unknown>, context: Partial<ActionContext> = {}) {
   const action = app.actions.get('meme')
   if (!action?.run) throw new Error('未注册独立 meme 动作')
@@ -16,10 +16,7 @@ async function runAction(app: Awaited<ReturnType<typeof setup>>, attrs: Record<s
 }
 
 describe('只读查询工具与独立 meme 动作', () => {
-  it('默认不开启；开启后仅公开查询工具，动作不再映射生成工具', async () => {
-    const disabled = await setup({ enableMemeXmlTool: false })
-    expect(disabled.ctx.tools.list().some((tool) => tool.name === 'meme_search')).toBe(false)
-    expect(disabled.actions.has('meme')).toBe(false)
+  it('服务存在即注册，仅公开查询工具，动作不再映射生成工具', async () => {
     const app = await setup()
     expect(app.ctx.tools.list().some((tool) => tool.name === 'meme_generate')).toBe(false)
     const search = app.ctx.tools.list().find((tool) => tool.name === 'meme_search')

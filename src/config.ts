@@ -54,7 +54,6 @@ export interface Config {
   allowLeadingAtBeforeCommand: boolean;
   enableDeveloperDebugLog: boolean;
   randomOutputMemeKey: string;
-  enableMemeXmlTool: boolean;
   promptMemeKeys: string[];
   memeActionConcurrency: number;
   memeActionQueueTimeoutSeconds: number;
@@ -109,7 +108,6 @@ export const defaultConfig: Config = {
   allowLeadingAtBeforeCommand: false,
   enableDeveloperDebugLog: false,
   randomOutputMemeKey: "",
-  enableMemeXmlTool: false,
   promptMemeKeys: [],
   memeActionConcurrency: 4,
   memeActionQueueTimeoutSeconds: 30,
@@ -171,9 +169,6 @@ const basicSchema = Schema.object({
 }).description("基础设置");
 
 const modelSchema = Schema.object({
-  enableMemeXmlTool: Schema.boolean()
-    .default(defaultConfig.enableMemeXmlTool)
-    .description("启用只读`meme_search`模板查询工具与生成发送图片的`meme`动作"),
   promptMemeKeys: Schema.array(Schema.string().min(1))
     .role("meme-generator:templates")
     .default(defaultConfig.promptMemeKeys)
@@ -375,7 +370,7 @@ const labels: Record<string, string> = {
   enableMemeCommandTrigger: "生成命令", enableDirectAliasWithoutPrefix: "无前缀别名",
   allowKeyWithoutPrefixTrigger: "无前缀模板键", allowMentionPrefixDirectAliasTrigger: "贴合参数", allowLeadingAtBeforeCommand: "前置提及",
   enableDeveloperDebugLog: "调试日志", randomOutputMemeKey: "固定随机模板",
-  enableMemeXmlTool: "原生动作与工具", promptMemeKeys: "注入模板",
+  promptMemeKeys: "注入模板",
   memeActionConcurrency: "表情动作并发", memeActionQueueTimeoutSeconds: "动作排队超时", memeActionQueueLimit: "每会话等待上限", memeSearchCacheMinutes: "模板索引缓存",
   enableRandomDedupeWithinHours: "随机去重", randomDedupeWindowHours: "去重窗口", enableRandomKeywordNotice: "随机模板提示",
   randomMemeBucketWeightRules: "随机类别权重", infoFetchConcurrency: "信息拉取并发", initLoadRetryTimes: "初始化重试",

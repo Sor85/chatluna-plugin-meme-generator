@@ -8,7 +8,7 @@ type PromptEnvironment = Parameters<Exclude<NonNullable<ActionInput['prompt']>, 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (const close of cleanup.splice(0)) await close() })
 async function setup(config: Parameters<typeof host>[0] = {}) {
-  const value = await host({ enableMemeXmlTool: true, ...config })
+  const value = await host(config)
   cleanup.push(value.close)
   return value
 }

@@ -45,7 +45,6 @@ describe('配置与项目说明', () => {
         expect(field.meta.description).not.toContain('是否')
       }
     }
-    expect(defaultConfig.enableMemeXmlTool).toBe(false)
     expect(defaultConfig.randomDedupeWindowHours).toBe(24)
     expect(defaultConfig.emptyTextAutoFillRules.map((rule) => rule.weight)).toEqual([100, 100])
     expect(defaultConfig.randomMemeBucketWeightRules).toHaveLength(5)
@@ -71,12 +70,12 @@ describe('配置与项目说明', () => {
   })
   it('不提供旧版工具回复兼容项或动作参考提示词', () => {
     const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
-    for (const name of ['injectMemeXmlToolAsReplyTool', 'memeXmlReferencePrompt']) {
+    for (const name of ['injectMemeXmlToolAsReplyTool', 'memeXmlReferencePrompt', 'enableMemeXmlTool']) {
       expect(fields).not.toHaveProperty(name)
       expect(defaultConfig).not.toHaveProperty(name)
       expect(Config({})).not.toHaveProperty(name)
     }
-    expect(fields.enableMemeXmlTool).toBeDefined()
+    expect(fields.promptMemeKeys).toBeDefined()
   })
   it('仅保留关键词检索缓存配置，不提供嵌入模型或阈值选项', () => {
     const fields = Object.fromEntries((Config.list ?? []).flatMap((group) => Object.entries(group.dict ?? {})))
